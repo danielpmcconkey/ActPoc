@@ -1229,6 +1229,7 @@ and txn_timestamp < current_setting('vars.start_date')::timestamp + interval '1 
 order by transaction_id;
 
 ************************************************************************************************************************
+************************************************************************************************************************
 
 Hybrid session
 Feb 14
@@ -1243,6 +1244,7 @@ I then ran this hybrid-written ETL code over the logical dates of 2024-10-02 thr
 
 I manually spot checked the output and it looks right to me 
 
+************************************************************************************************************************
 ************************************************************************************************************************
 
 AI session with Claude
@@ -1304,8 +1306,9 @@ PROMPT:
     Deliverable Goal
     Produce a clear, structured specification of inferred business requirements that another agent can use to generate test cases.
 
-It ran for a very long time. I killed it after 15 minutes.
+It ran for a very long time. I killed it after around 15 minutes.
 
+************************************************************************************************************************
 ************************************************************************************************************************
 
 Claude Code session
