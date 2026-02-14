@@ -1214,11 +1214,13 @@ select * from public.segments
 ************************************************************************************************************************
 
 the transactions extract only shows each day’s transactions for each logical date-effective
+
 set session vars.start_date = '2024-10-07 00:00';
 select 
 	transaction_id,
 	account_id,
 	txn_timestamp,
+	txn_type,
 	amount,
 	description
 from public.transactions
