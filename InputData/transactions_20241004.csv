@@ -1,0 +1,4 @@
+"transaction_id","account_id","txn_timestamp","amount","description"
+4020,3010,"2024-10-04 12:30:00","250.00","Deposit"
+4035,3018,"2024-10-04 09:40:00","55.00","Taxi"
+4045,3023,"2024-10-04 08:20:00","60.00","Groceries"

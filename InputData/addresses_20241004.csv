@@ -1,0 +1,25 @@
+"address_id","customer_id","address_line1","city","state_province","postal_code","country","start_date","end_date"
+2001,1001,"1452 Oak Street","Columbus","OH","43215","US","2019-01-01","2024-10-02"
+2002,1001,"250 Rideau Street","Ottawa","ON","K1N 5Y1","CA","2024-10-02",NULL
+2003,1015,"44 Jasper Ave","Edmonton","AB","T5J 3R7","CA","2018-02-01","2024-10-04"
+2010,1002,"88 Lake Shore Dr","Chicago","IL","60601","US","2022-06-15",NULL
+2011,1003,"742 Evergreen Terrace","Springfield","IL","62704","US","2021-09-10",NULL
+2012,1004,"19 Market Street","San Francisco","CA","94105","US","2023-03-22",NULL
+2013,1005,"500 Pine Ave","Seattle","WA","98101","US","2022-11-05",NULL
+2014,1006,"77 River Road","Austin","TX","73301","US","2023-07-18",NULL
+2015,1007,"12 Hillcrest Blvd","Denver","CO","80202","US","2021-04-09",NULL
+2016,1008,"900 Broadway","New York","NY","10003","US","2023-02-01",NULL
+2017,1009,"455 Desert Lane","Phoenix","AZ","85004","US","2022-08-30",NULL
+2018,1010,"321 Harbor Way","San Diego","CA","92101","US","2023-05-12",NULL
+2019,1011,"88 Peachtree St","Atlanta","GA","30303","US","2021-12-20",NULL
+2020,1012,"600 Main Street","Kansas City","MO","64105","US","2022-10-01",NULL
+2021,1013,"1200 Rue Sainte-Catherine","Montreal","QC","H3B 1K9","CA","2023-01-10",NULL
+2022,1014,"75 King Street","Toronto","ON","M5H 1J9","CA","2022-05-02",NULL
+2023,1016,"200 Granville St","Vancouver","BC","V6C 1S4","CA","2023-06-01",NULL
+2024,1017,"18 Portage Ave","Winnipeg","MB","R3C 0B1","CA","2022-07-11",NULL
+2025,1018,"90 Barrington St","Halifax","NS","B3J 1Z4","CA","2023-04-15",NULL
+2026,1019,"10 Queen Square","Fredericton","NB","E3B 1B2","CA","2021-11-03",NULL
+2027,1020,"55 Water Street","St. John’s","NL","A1C 1A1","CA","2022-02-25",NULL
+2028,1021,"300 Victoria Ave","Regina","SK","S4P 0S4","CA","2023-03-08",NULL
+2029,1022,"88 College Street","Toronto","ON","M5G 1L4","CA","2022-09-14",NULL
+2030,1023,"15 2nd Ave","Whitehorse","YT","Y1A 1B2","CA","2023-05-20",NULL
