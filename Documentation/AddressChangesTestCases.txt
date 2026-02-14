@@ -23,14 +23,14 @@ Rule-to-Test Coverage Matrix
 
 Business Rule                              | Test Case IDs
 -------------------------------------------|--------------------------------------
-BR-1  (Baseline produces no output)        | TC-01, TC-02
-BR-2  (Day-over-day comparison)            | TC-03, TC-04, TC-05
+BR-1  (Previous day = effective - 1)        | TC-01, TC-02
+BR-2  (Effective vs previous day compare)  | TC-03, TC-04, TC-05
 BR-3  (NEW classification)                 | TC-06, TC-07, TC-08
 BR-4  (UPDATED classification)             | TC-09, TC-10, TC-11, TC-12
 BR-5  (Output reflects current-day values) | TC-13, TC-14
 BR-6  (Customer name join: first + last)   | TC-15, TC-16, TC-17, TC-18
 BR-7  (No other customer fields in output) | TC-19
-BR-8  (Output file always generated)       | TC-20, TC-21
+BR-8  (Output file always generated)       | TC-20
 BR-9  (Expected records footer)            | TC-22, TC-23, TC-24
 BR-10 (NULL end_date -> empty)             | TC-25, TC-26
 BR-11 (Unchanged records excluded)         | TC-27, TC-28
@@ -48,24 +48,30 @@ Detailed Test Cases
 
 === Tier 1 — Normal / Positive Cases (Regression) ===
 
-TC-01: Baseline day produces no output file
-  Purpose:     Confirm the first input date is treated as baseline only.
-  Input:       addresses_20241001.csv (23 records), customers_20241001.csv (23 records).
-               No prior-day file.
-  Expected:    No address_changes_20241001.csv file is produced.
-  Validation:  Assert file does not exist.
+TC-01: Missing previous-day file produces error
+  Purpose:     Confirm that running with an effective date whose previous-day file does not
+               exist results in an error, not silent success.
+  Input:       Effective date = 20241001. Only addresses_20241001.csv exists in input dir.
+               No addresses_20240930.csv file.
+  Expected:    ETL halts with a non-zero exit code and an error message referencing the
+               missing previous-day file.
+  Validation:  Assert exit code = 1; assert error message mentions addresses_20240930.csv.
   Covers:      BR-1
 
-TC-02: Baseline with a single input day
-  Purpose:     Confirm that if only one date of input is provided, no output is generated.
-  Input:       Single addresses file addresses_20250101.csv with 5 records; matching customers file.
-  Expected:    No output file.
-  Validation:  Assert no address_changes_* files created.
+TC-02: Missing effective-date file produces error
+  Purpose:     Confirm that running with an effective date whose own snapshot file does not
+               exist results in an error.
+  Input:       Effective date = 20250102. addresses_20250101.csv exists but
+               addresses_20250102.csv does not.
+  Expected:    ETL halts with a non-zero exit code and an error message referencing the
+               missing effective-date file.
+  Validation:  Assert exit code = 1; assert error message mentions addresses_20250102.csv.
   Covers:      BR-1
 
-TC-03: Regression — Oct 1 -> Oct 2 change detection
+TC-03: Regression — effective date 20241002
   Purpose:     Validate exact match against known provided output.
-  Input:       addresses_20241001.csv, addresses_20241002.csv, customers_20241002.csv
+  Input:       Effective date = 20241002. Compares addresses_20241002.csv vs addresses_20241001.csv.
+               Customer file: customers_20241002.csv.
   Expected:    address_changes_20241002.csv containing:
                ---------------------------------------------------------------
                change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
@@ -77,9 +83,10 @@ TC-03: Regression — Oct 1 -> Oct 2 change detection
   Validation:  Byte-for-byte match of output file content.
   Covers:      BR-2, BR-3, BR-4, BR-5, BR-6, BR-9, BR-10, BR-12
 
-TC-04: Regression — Oct 3 -> Oct 4 change detection
+TC-04: Regression — effective date 20241004
   Purpose:     Validate single UPDATED record output.
-  Input:       addresses_20241003.csv, addresses_20241004.csv, customers_20241004.csv
+  Input:       Effective date = 20241004. Compares addresses_20241004.csv vs addresses_20241003.csv.
+               Customer file: customers_20241004.csv.
   Expected:    address_changes_20241004.csv containing:
                ---------------------------------------------------------------
                change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
@@ -90,9 +97,10 @@ TC-04: Regression — Oct 3 -> Oct 4 change detection
   Validation:  Exact match.
   Covers:      BR-2, BR-4, BR-5, BR-6, BR-9
 
-TC-05: Regression — Oct 4 -> Oct 5 change detection
+TC-05: Regression — effective date 20241005
   Purpose:     Validate single NEW record output.
-  Input:       addresses_20241004.csv, addresses_20241005.csv, appropriate customers file.
+  Input:       Effective date = 20241005. Compares addresses_20241005.csv vs addresses_20241004.csv.
+               Customer file resolved to customers_20241004.csv (most recent <= effective date).
   Expected:    address_changes_20241005.csv containing:
                ---------------------------------------------------------------
                change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
@@ -225,14 +233,16 @@ TC-19: No extraneous customer fields in output
 
 TC-20: Zero-change day still produces output file
   Purpose:     Confirm file generation even when no records differ.
-  Input:       Two identical consecutive address files.
+  Input:       Effective date = day2. addresses_day1.csv and addresses_day2.csv are identical.
   Expected:    File exists with header row, blank line, and "Expected records: 0".
   Validation:  File exists; header present; zero data rows; footer reads 0.
   Covers:      BR-8, BR-9
 
-TC-21: Multiple consecutive zero-change days
-  Purpose:     Confirm every day in sequence generates a file, not just the first zero-change day.
+TC-21: Multiple zero-change days run independently
+  Purpose:     Confirm that running separate invocations for consecutive zero-change dates
+               each produces an independent output file.
   Input:       addresses_day1 = addresses_day2 = addresses_day3 = addresses_day4 (all identical).
+               Run three times: effective date = day2, day3, day4.
   Expected:    Three output files (day2, day3, day4), each with 0 records.
   Covers:      BR-8
 
@@ -431,8 +441,8 @@ TC-43: Output header matches expected schema exactly
 
 TC-44: Output file naming convention
   Purpose:     Validate output file name matches pattern address_changes_YYYYMMDD.csv
-               where YYYYMMDD is the current-day date.
-  Input:       addresses_20250115.csv, addresses_20250116.csv
+               where YYYYMMDD is the effective date.
+  Input:       Effective date = 20250116. addresses_20250115.csv and addresses_20250116.csv exist.
   Expected:    File named address_changes_20250116.csv
   Covers:      BR-2 (implicit)
 
@@ -443,10 +453,12 @@ TC-45: Empty line between last data row and footer
   Validation:  Assert line structure of file.
   Covers:      BR-9
 
-TC-46: Full week regression — all 7 days end-to-end
-  Purpose:     Run the entire provided input through the ETL and compare all 6 output files
-               against provided output.
+TC-46: Full week regression — all 6 effective dates
+  Purpose:     Run the ETL once for each effective date (20241002 through 20241007)
+               and compare each output file against provided output.
   Input:       All 7 addresses files + all 5 customers files from provided input.
+               Run 6 times: effective dates 20241002, 20241003, 20241004, 20241005,
+               20241006, 20241007.
   Expected:    Exact match of all 6 provided output files.
   Validation:  Byte-for-byte comparison of each output file.
   Covers:      All BR rules

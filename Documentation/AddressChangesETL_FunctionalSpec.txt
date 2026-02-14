@@ -19,20 +19,21 @@ need an incremental feed of address changes rather than full daily snapshots.
 1.2 Scope
 
   - Input:   Daily address snapshot files and daily customer snapshot files.
-  - Output:  Daily address change log files.
-  - The pipeline processes one pair of consecutive days at a time (previous day vs. current day).
-  - The pipeline must process all available consecutive day-pairs in a single run when multiple
-    input dates are present.
+  - Output:  A single address change log file per invocation.
+  - The pipeline processes exactly one effective date per run. It compares the effective
+    date's address snapshot against the previous calendar day's snapshot
+    (effective_date - 1 day) and produces one change log file.
+  - To process a range of dates, the caller invokes the pipeline once per date.
 
 1.3 Glossary
 
   Term              | Definition
   ------------------|-------------------------------------------------------------------
-  Baseline          | The first chronological input date; used only as a comparison anchor
-  Current day       | The date being processed (produces an output file)
-  Previous day      | The date immediately before the current day in the input sequence
+  Effective date    | The date supplied by the caller; the pipeline produces output for this date
+  Current day       | Synonym for effective date — the date being processed
+  Previous day      | The calendar day immediately before the effective date (effective_date - 1)
   Snapshot          | A complete addresses or customers file for a single date
-  Change log        | The output file listing NEW and UPDATED address records for one day
+  Change log        | The output file listing NEW, UPDATED, and DELETED address records
   address_id        | The unique identifier for an address record (primary comparison key)
 
 
@@ -111,7 +112,7 @@ need an incremental feed of address changes rather than full daily snapshots.
 3.1 Change Log Files
 
   File naming:    address_changes_YYYYMMDD.csv
-                  Where YYYYMMDD matches the current-day processing date.
+                  Where YYYYMMDD matches the effective date.
   Format:         CSV
   Encoding:       UTF-8
 
@@ -340,100 +341,95 @@ need an incremental feed of address changes rather than full daily snapshots.
 5. Functional Processing Flow
 ------------------------------
 
-5.1 Initialization
+5.1 Input
 
-  Step 1:  Discover all available address input files matching the pattern
-           addresses_YYYYMMDD.csv in the input directory.
+  The pipeline is invoked with three parameters:
+    - Input directory:   path containing addresses_YYYYMMDD.csv and customers_YYYYMMDD.csv files
+    - Output directory:  path where the output file will be written
+    - Effective date:    the date to process, in YYYYMMDD format
 
-  Step 2:  Sort discovered dates in ascending chronological order.
+5.2 Initialization
 
-  Step 3:  Designate the first (earliest) date as the BASELINE.
-           No output file is produced for the baseline date.
+  Step 1:  Compute the previous date as effective_date minus 1 calendar day.
+           Example: effective date 2024-10-05 -> previous date 2024-10-04.
 
-  Step 4:  Discover all available customer input files matching the pattern
+  Step 2:  Validate that the required address files exist (pre-flight):
+             - addresses_YYYYMMDD.csv for the previous date
+             - addresses_YYYYMMDD.csv for the effective date
+           If either file is missing, halt with error (Section 6.1).
+
+  Step 3:  Discover all available customer input files matching the pattern
            customers_YYYYMMDD.csv in the input directory.
 
-  Step 5:  Validate that at least two address input dates exist.
-           If only one date exists, processing completes with no output.
+5.3 Processing
 
-5.2 Daily Processing Loop
+    Step 4:   Load the PREVIOUS-DAY address snapshot into a lookup index
+              keyed by address_id.
 
-  For each date D(i) from the second date onward (i = 2, 3, ... N):
+    Step 5:   Load the EFFECTIVE-DATE address snapshot into a lookup index
+              keyed by address_id.
 
-    Step 6:   Load the PREVIOUS-DAY address snapshot: addresses file for D(i-1).
+    Step 6:   Resolve the customer file for the effective date per Section 2.3.
+              Load the resolved customer snapshot into a lookup index keyed
+              by customers.id, pre-computing customer_name.
 
-    Step 7:   Load the CURRENT-DAY address snapshot: addresses file for D(i).
+    Step 7:   Initialize an empty change list.
 
-    Step 8:   Resolve the customer file for D(i) per Section 2.3.
-              Load the resolved customer snapshot.
-
-    Step 9:   Build a lookup index of customer records keyed by customers.id.
-
-    Step 10:  Build a lookup index of previous-day address records keyed by address_id.
-
-    Step 11:  Build a lookup index of current-day address records keyed by address_id.
-
-    Step 12:  Initialize an empty change list.
-
-    Step 13:  FOR EACH address_id in the current-day index:
+    Step 8:   FOR EACH address_id in the effective-date index:
                 - If address_id NOT in previous-day index:
                     -> Create output record with change_type = NEW
-                    -> Populate all fields from current-day address record
+                    -> Populate all fields from effective-date address record
                     -> Resolve customer_name via customer lookup using customer_id
                     -> Apply end_date NULL-to-empty transformation
                     -> Append to change list
                 - If address_id IS in previous-day index:
-                    -> Compare all field values between current and previous
+                    -> Compare all field values between effective-date and previous-day
                     -> If any difference found:
                          -> Create output record with change_type = UPDATED
-                         -> Populate all fields from current-day address record
+                         -> Populate all fields from effective-date address record
                          -> Resolve customer_name via customer lookup
                          -> Apply end_date NULL-to-empty transformation
                          -> Append to change list
                     -> If no differences: skip (do not include in output)
 
-    Step 14:  (If DELETED is implemented per Section 4.1)
+    Step 9:   (If DELETED is implemented per Section 4.1)
               FOR EACH address_id in the previous-day index:
-                - If address_id NOT in current-day index:
+                - If address_id NOT in effective-date index:
                     -> Create output record with change_type = DELETED
                     -> Populate all fields from previous-day address record
                     -> Resolve customer_name via customer lookup
                     -> Apply end_date NULL-to-empty transformation
                     -> Append to change list
 
-    Step 15:  Sort the change list by address_id ascending.
+    Step 10:  Sort the change list by address_id ascending.
 
-    Step 16:  Write the output file address_changes_YYYYMMDD.csv for date D(i):
+    Step 11:  Write the output file address_changes_YYYYMMDD.csv for the effective date:
                 - Write header row
                 - Write all data rows from the sorted change list
                 - Write a blank line
                 - Write footer: "Expected records: N" where N = length of change list
 
-    Step 17:  Proceed to next date D(i+1), or finish if no more dates.
+5.4 Processing Flow Diagram
 
-5.3 Processing Flow Diagram
-
-  [Discover input files]
+  [Receive effective date]
          |
          v
-  [Sort dates chronologically]
+  [Compute previous date = effective_date - 1]
          |
          v
-  [Date 1 = BASELINE, no output]
+  [Validate both address files exist]
          |
          v
-  [For each subsequent date D(i):]
-         |
-         +---> [Load addresses D(i-1)]
-         +---> [Load addresses D(i)]
-         +---> [Resolve & load customers for D(i)]
+  [Load addresses for previous date]
+  [Load addresses for effective date]
+  [Resolve & load customers for effective date]
          |
          v
   [Compare address snapshots by address_id]
          |
-         +---> [NEW: in current, not in previous]
+         +---> [NEW: in effective date, not in previous]
          +---> [UPDATED: in both, fields differ]
-         +---> [DELETED: in previous, not in current] (if implemented)
+         +---> [DELETED: in previous, not in effective date] (if implemented)
          +---> [UNCHANGED: in both, identical -> skip]
          |
          v
@@ -444,9 +440,6 @@ need an incremental feed of address changes rather than full daily snapshots.
          |
          v
   [Write output file: header + data rows + blank line + footer]
-         |
-         v
-  [Next date or finish]
 
 
 6. Error Handling Behavior
@@ -454,17 +447,15 @@ need an incremental feed of address changes rather than full daily snapshots.
 
 6.1 Missing Address File
 
-  Condition:   An expected address file for a date in the sequence is missing.
-  Behavior:    DECISION REQUIRED. Options:
-               (a) Skip that date pair and continue with the next available pair.
-               (b) Halt processing with an error.
-  Recommended: (b) Halt. Missing snapshot data compromises change detection integrity.
+  Condition:   Either the effective-date or previous-day address file does not exist.
+  Behavior:    Halt processing with an error identifying which file is missing.
+               Both files are required: the effective date and the previous calendar day.
 
 6.2 Missing Customer File
 
-  Condition:   No customer file can be resolved for the current processing date
+  Condition:   No customer file can be resolved for the effective date
                (per Section 2.3 resolution strategy).
-  Behavior:    Halt processing with an error indicating which date lacks customer data.
+  Behavior:    Halt processing with an error indicating the effective date lacks customer data.
   Traceability: TC-35
 
 6.3 Orphaned Customer ID
@@ -508,20 +499,22 @@ need an incremental feed of address changes rather than full daily snapshots.
 
 7.2 File Generation Guarantee
 
-  An output file SHALL be produced for every processing date (every date after the baseline),
-  regardless of whether any changes were detected.
+  An output file SHALL be produced for every invocation, regardless of whether any
+  changes were detected. A zero-change run produces a file with header, blank line,
+  and "Expected records: 0".
 
-  Traceability: BR-8 | TC-20, TC-21
+  Traceability: BR-8 | TC-20
 
 7.3 Atomicity
 
-  Each output file SHOULD be written atomically (e.g., write to a temporary file, then rename)
+  The output file SHOULD be written atomically (e.g., write to a temporary file, then rename)
   to prevent partial files from being consumed by downstream processes.
 
-7.4 Processing Order
+7.4 Multi-Date Processing
 
-  Dates SHALL be processed in strict chronological order. Each day's comparison depends on
-  the previous day's snapshot, so parallel processing of day-pairs is not appropriate.
+  To process a range of dates, the caller invokes the pipeline once per effective date,
+  in chronological order. Each invocation is independent and self-contained. The caller
+  is responsible for iterating over the date range.
 
 
 8. Traceability Matrix
@@ -529,14 +522,14 @@ need an incremental feed of address changes rather than full daily snapshots.
 
 Requirement | Functional Behavior (Section)              | Test Cases
 ------------|--------------------------------------------|---------------------------------
-BR-1        | 5.1 Step 3: Baseline produces no output    | TC-01, TC-02
-BR-2        | 5.2 Steps 6-7: Consecutive day comparison  | TC-03, TC-04, TC-05, TC-44, TC-46
+BR-1        | 5.2 Step 1: Previous day = effective - 1   | TC-01, TC-02
+BR-2        | 5.3 Steps 4-5: Effective vs previous day   | TC-03, TC-04, TC-05, TC-44, TC-46
 BR-3        | 4.1, 4.2: NEW classification               | TC-06, TC-07, TC-08, TC-34
 BR-4        | 4.1, 4.2: UPDATED classification           | TC-09, TC-10, TC-11, TC-12, TC-26, TC-37, TC-38, TC-40
 BR-5        | 4.4: Current-day values in output          | TC-03, TC-04, TC-05, TC-09, TC-12, TC-13, TC-14
 BR-6        | 4.3: Customer name derivation              | TC-15, TC-16, TC-17, TC-18, TC-32, TC-40, TC-42
 BR-7        | 4.3: Excluded customer fields              | TC-19, TC-43
-BR-8        | 7.2: File always generated                 | TC-20, TC-21, TC-28
+BR-8        | 7.2: File always generated                 | TC-20, TC-28
 BR-9        | 4.7, 3.2: Record count footer              | TC-22, TC-23, TC-24, TC-45
 BR-10       | 4.5: NULL to empty conversion              | TC-25, TC-26
 BR-11       | 4.1: Unchanged records excluded            | TC-27, TC-28
@@ -561,7 +554,7 @@ D-1      | DELETED change type          | 4.1     | A-1       | Implement DELETE
 D-2      | Customer file resolution     | 2.3     | A-3/A-7   | Most recent file <= current date
 D-3      | Orphan customer_id handling  | 4.3     | A-5       | Halt with error
 D-4      | Duplicate address_id in file | 6.4     | CG-5      | Halt with error
-D-5      | Missing address file in seq  | 6.1     | CG-4      | Halt with error
+D-5      | Missing address file         | 6.1     | CG-4      | Halt with error
 
 
 10. Appendix: Complete Field Mapping

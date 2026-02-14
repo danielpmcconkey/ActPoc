@@ -2941,12 +2941,1032 @@ PROMPT
     of the May 4 data  
 
 RESPONSE
-
+    
+    ● Good call. Let me update all three deliverables — code first, then spec and tests.
+    
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges/Program.cs)
+      ⎿  Added 23 lines, removed 7 lines
+           1 +using System.Globalization;                                                                                                
+           2  using ClaudeAddressChanges.Engine;
+           3  
+           4  // =============================================================================
+           5  // Address Changes ETL — Command-Line Entry Point
+           6  //
+           6 -// Usage:  ClaudeAddressChanges <input-directory> <output-directory>                                                       
+           7 +// Usage:  ClaudeAddressChanges <input-directory> <output-directory> <effective-date>                                      
+           8  //
+           9  //   <input-directory>   Directory containing addresses_YYYYMMDD.csv and
+          10  //                       customers_YYYYMMDD.csv snapshot files.
+          10 -//   <output-directory>  Directory where address_changes_YYYYMMDD.csv files                                                
+          11 -//                       will be written.                                                                                  
+          11 +//   <output-directory>  Directory where the output address_changes_YYYYMMDD.csv                                           
+          12 +//                       file will be written.                                                                             
+          13 +//   <effective-date>    The date to process, in YYYYMMDD format.                                                          
+          14 +//                       The pipeline compares this date's snapshot against the                                            
+          15 +//                       previous calendar day's snapshot (effective-date minus 1).                                        
+          16  //
+          17  // Exit codes:
+          18  //   0 = Success
+         ...
+          21  // All log output goes to stderr; stdout is unused.
+          22  // =============================================================================
+          23  
+          20 -if (args.Length < 2)                                                                                                       
+          24 +if (args.Length < 3)                                                                                                       
+          25  {
+          22 -    Console.Error.WriteLine("Usage: ClaudeAddressChanges <input-directory> <output-directory>");                           
+          26 +    Console.Error.WriteLine("Usage: ClaudeAddressChanges <input-directory> <output-directory> <effective-date>");          
+          27      Console.Error.WriteLine();
+          28      Console.Error.WriteLine("  <input-directory>   Directory containing addresses_YYYYMMDD.csv and");
+          29      Console.Error.WriteLine("                      customers_YYYYMMDD.csv snapshot files");
+          26 -    Console.Error.WriteLine("  <output-directory>  Directory for output address_changes_YYYYMMDD.csv files");              
+          30 +    Console.Error.WriteLine("  <output-directory>  Directory for output address_changes_YYYYMMDD.csv file");               
+          31 +    Console.Error.WriteLine("  <effective-date>    Processing date in YYYYMMDD format (e.g., 20241002)");                  
+          32 +    Console.Error.WriteLine();                                                                                             
+          33 +    Console.Error.WriteLine("The ETL compares the effective date's address snapshot against the");                         
+          34 +    Console.Error.WriteLine("previous calendar day (effective-date minus 1 day).");                                        
+          35      return 1;
+          36  }
+          37  
+          38  string inputDir = args[0];
+          39  string outputDir = args[1];
+          40 +string dateArg = args[2];                                                                                                  
+          41  
+          42 +if (!DateOnly.TryParseExact(dateArg, "yyyyMMdd", CultureInfo.InvariantCulture,                                             
+          43 +        DateTimeStyles.None, out var effectiveDate))                                                                       
+          44 +{                                                                                                                          
+          45 +    Console.Error.WriteLine($"[ERROR] Invalid effective date: '{dateArg}'. Expected format: YYYYMMDD (e.g., 20241002)");   
+          46 +    return 1;                                                                                                              
+          47 +}                                                                                                                          
+          48 +                                                                                                                           
+          49  if (!Directory.Exists(inputDir))
+          50  {
+          51      Console.Error.WriteLine($"[ERROR] Input directory does not exist: {inputDir}");
+         ...
+          60  
+          61  try
+          62  {
+          47 -    var pipeline = new Pipeline(inputDir, outputDir);                                                                      
+          63 +    var pipeline = new Pipeline(inputDir, outputDir, effectiveDate);                                                       
+          64      pipeline.Run();
+          65      return 0;
+          66  }
+    
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges/Engine/Pipeline.cs)
+      ⎿  Added 94 lines, removed 133 lines
+           7  namespace ClaudeAddressChanges.Engine;
+           8  
+           9  /// <summary>
+          10 -/// ETL pipeline orchestrator.                                                                                             
+          10 +/// ETL pipeline orchestrator for single-date processing.                                                                  
+          11 +///                                                                                                                        
+          12  /// Implements Section 5 (Functional Processing Flow):
+          12 -///   5.1: Initialization — file discovery, date sorting, baseline designation                                             
+          13 -///   5.2: Daily processing loop — load, compare, enrich, write                                                            
+          13 +///   The caller supplies an effective date. The pipeline compares the effective                                           
+          14 +///   date's address snapshot against the previous calendar day's snapshot                                                 
+          15 +///   (effective_date - 1) and produces a single change log file.                                                          
+          16  ///
+          17  /// Memory profile for maximum scale (10M addresses, 5M customers):
+          18  ///   ~4GB per address dictionary × 2 dictionaries at peak = ~8GB
+         ...
+           23  {
+           24      private readonly string _inputDir;
+           25      private readonly string _outputDir;
+           26 +    private readonly DateOnly _effectiveDate;                                                                             
+           27  
+           25 -    public Pipeline(string inputDir, string outputDir)                                                                    
+           28 +    public Pipeline(string inputDir, string outputDir, DateOnly effectiveDate)                                            
+           29      {
+           30          _inputDir = inputDir;
+           31          _outputDir = outputDir;
+           32 +        _effectiveDate = effectiveDate;                                                                                   
+           33      }
+           34  
+           35      /// <summary>
+           32 -    /// Executes the full ETL pipeline.                                                                                   
+           36 +    /// Executes the ETL pipeline for the configured effective date.                                                      
+           37 +    ///                                                                                                                   
+           38 +    /// Processing flow:                                                                                                  
+           39 +    ///   1. Compute previous date = effective_date - 1 calendar day                                                      
+           40 +    ///   2. Validate that required input files exist (pre-flight)                                                        
+           41 +    ///   3. Load previous-day address snapshot                                                                           
+           42 +    ///   4. Load effective-date address snapshot                                                                         
+           43 +    ///   5. Resolve and load customer file (<= effective date)                                                           
+           44 +    ///   6. Detect changes (NEW, UPDATED, DELETED)                                                                       
+           45 +    ///   7. Write output file                                                                                            
+           46 +    ///                                                                                                                   
+           47      /// Section 7.1: Running multiple times with same input produces identical output (idempotent).
+           34 -    /// Section 7.4: Dates are processed in strict chronological order.                                                   
+           48      /// </summary>
+           49      public void Run()
+           50      {
+           51          var totalTimer = Stopwatch.StartNew();
+           52  
+           53 +        // Compute the comparison date: previous calendar day                                                             
+           54 +        var previousDate = _effectiveDate.AddDays(-1);                                                                    
+           55 +                                                                                                                          
+           56          Log("Starting Address Changes ETL");
+           57 +        Log($"Effective date:   {_effectiveDate:yyyyMMdd}");                                                              
+           58 +        Log($"Previous date:    {previousDate:yyyyMMdd}");                                                                
+           59          Log($"Input directory:  {_inputDir}");
+           60          Log($"Output directory: {_outputDir}");
+           61  
+           44 -        // --- Section 5.1: Initialization ---                                                                            
+           62 +        // --- Pre-flight validation ---                                                                                  
+           63 +        // Verify both address files exist before loading anything.                                                       
+           64 +        InputValidator.ValidateRequiredFiles(_inputDir, _effectiveDate, previousDate);                                    
+           65  
+           46 -        // Step 1-2: Discover and sort address input dates                                                                
+           47 -        var addressDates = DiscoverDates("addresses");                                                                    
+           48 -        Log($"Discovered {addressDates.Count} address snapshot(s): " +                                                    
+           49 -            $"{addressDates.First():yyyyMMdd} to {addressDates.Last():yyyyMMdd}");                                        
+           66 +        // --- Load previous-day address snapshot ---                                                                     
+           67 +        var prevPath = BuildAddressPath(previousDate);                                                                    
+           68 +        var prevTimer = Stopwatch.StartNew();                                                                             
+           69 +        var previousAddresses = AddressFileReader.ReadFile(prevPath);                                                     
+           70 +        prevTimer.Stop();                                                                                                 
+           71 +        Log($"Loaded previous-day addresses ({previousDate:yyyyMMdd}): {previousAddresses.Count:N0} records ({prevTimer.El
+              +apsedMilliseconds}ms)");                                                                                                  
+           72  
+           51 -        // Step 4: Discover customer input dates                                                                          
+           52 -        var customerDates = DiscoverDates("customers");                                                                   
+           53 -        Log($"Discovered {customerDates.Count} customer snapshot(s)");                                                    
+           73 +        // --- Load effective-date address snapshot ---                                                                   
+           74 +        var currPath = BuildAddressPath(_effectiveDate);                                                                  
+           75 +        var currTimer = Stopwatch.StartNew();                                                                             
+           76 +        var currentAddresses = AddressFileReader.ReadFile(currPath);                                                      
+           77 +        currTimer.Stop();                                                                                                 
+           78 +        Log($"Loaded effective-date addresses ({_effectiveDate:yyyyMMdd}): {currentAddresses.Count:N0} records ({currTimer
+              +.ElapsedMilliseconds}ms)");                                                                                               
+           79  
+           55 -        // Step 5: Validate at least two address dates exist (BR-1 requires a baseline + at least one processing day)     
+           56 -        InputValidator.ValidateMinimumDates(addressDates);                                                                
+           80 +        // --- Resolve and load customer file ---                                                                         
+           81 +        // Section 2.3, Decision D-2 (Option B): most recent customer file <= effective date                              
+           82 +        // Implements BR-13: Customer file does not need to match the effective date exactly.                             
+           83 +        var customerDates = DiscoverCustomerDates();                                                                      
+           84 +        var resolvedCustomerDate = ResolveCustomerDate(customerDates, _effectiveDate);                                    
+           85  
+           58 -        // Step 3: Designate first date as baseline                                                                       
+           59 -        var baseline = addressDates[0];                                                                                   
+           60 -        Log($"Baseline date: {baseline:yyyyMMdd} (no output produced — BR-1)");                                           
+           86 +        if (resolvedCustomerDate is null)                                                                                 
+           87 +        {                                                                                                                 
+           88 +            // Section 6.2: Halt if no customer file can be resolved                                                      
+           89 +            throw new InvalidOperationException(                                                                          
+           90 +                $"No customer file available for effective date {_effectiveDate:yyyyMMdd}. " +                            
+           91 +                $"Searched for customers_YYYYMMDD.csv with date <= {_effectiveDate:yyyyMMdd} (Section 6.2)");             
+           92 +        }                                                                                                                 
+           93  
+           62 -        // --- Section 5.2: Daily Processing Loop ---                                                                     
+           63 -                                                                                                                          
+           64 -        Dictionary<int, AddressRecord>? previousAddresses = null;                                                         
+           65 -        DateOnly? lastResolvedCustomerDate = null;                                                                        
+           66 -        Dictionary<int, string>? customerNames = null;                                                                    
+           67 -                                                                                                                          
+           68 -        for (int i = 0; i < addressDates.Count; i++)                                                                      
+           94 +        var custPath = Path.Combine(_inputDir, $"customers_{resolvedCustomerDate.Value:yyyyMMdd}.csv");                   
+           95 +        if (!File.Exists(custPath))                                                                                       
+           96          {
+           70 -            var currentDate = addressDates[i];                                                                            
+           71 -            var addressPath = GetFilePath("addresses", currentDate);                                                      
+           97 +            throw new InvalidOperationException($"Resolved customer file does not exist: {custPath}");                    
+           98 +        }                                                                                                                 
+           99  
+           73 -            if (i == 0)                                                                                                   
+           74 -            {                                                                                                             
+           75 -                // Implements BR-1: Baseline — load only, no output produced                                              
+           76 -                var stepTimer = Stopwatch.StartNew();                                                                     
+           77 -                previousAddresses = AddressFileReader.ReadFile(addressPath);                                              
+           78 -                stepTimer.Stop();                                                                                         
+           79 -                Log($"Loaded baseline {currentDate:yyyyMMdd}: {previousAddresses.Count:N0} addresses ({stepTimer.ElapsedMi
+              -lliseconds}ms)");                                                                                                         
+           80 -                continue;                                                                                                 
+           81 -            }                                                                                                             
+          100 +        var custTimer = Stopwatch.StartNew();                                                                             
+          101 +        var customerNames = CustomerFileReader.ReadFile(custPath);                                                        
+          102 +        custTimer.Stop();                                                                                                 
+          103 +        Log($"Loaded customer file {resolvedCustomerDate.Value:yyyyMMdd}: {customerNames.Count:N0} customers ({custTimer.E
+              +lapsedMilliseconds}ms)");                                                                                                 
+          104  
+           83 -            Log($"--- Processing {currentDate:yyyyMMdd} ---");                                                            
+           84 -            var dayTimer = Stopwatch.StartNew();                                                                          
+          105 +        // --- Change detection ---                                                                                       
+          106 +        // Section 4.1: Compare current-day vs previous-day by address_id                                                 
+          107 +        var detectTimer = Stopwatch.StartNew();                                                                           
+          108 +        var changes = ChangeDetector.DetectChanges(previousAddresses, currentAddresses, customerNames);                   
+          109 +        detectTimer.Stop();                                                                                               
+          110  
+           86 -            // Step 7: Load current-day address snapshot                                                                  
+           87 -            var loadTimer = Stopwatch.StartNew();                                                                         
+           88 -            var currentAddresses = AddressFileReader.ReadFile(addressPath);                                               
+           89 -            loadTimer.Stop();                                                                                             
+           90 -            Log($"  Loaded {currentAddresses.Count:N0} current-day addresses ({loadTimer.ElapsedMilliseconds}ms)");       
+           91 -                                                                                                                          
+           92 -            // Step 8: Resolve customer file per Section 2.3, Decision D-2 (Option B)                                     
+           93 -            var resolvedCustomerDate = ResolveCustomerDate(customerDates, currentDate);                                   
+           94 -            if (resolvedCustomerDate is null)                                                                             
+          111 +        int newCount = 0, updatedCount = 0, deletedCount = 0;                                                             
+          112 +        foreach (var c in changes)                                                                                        
+          113 +        {                                                                                                                 
+          114 +            switch (c.ChangeType)                                                                                         
+          115              {
+           96 -                // Section 6.2: Halt if no customer file can be resolved                                                  
+           97 -                throw new InvalidOperationException(                                                                      
+           98 -                    $"No customer file available for processing date {currentDate:yyyyMMdd}. " +                          
+           99 -                    $"Searched for customers_YYYYMMDD.csv with date <= {currentDate:yyyyMMdd} (Section 6.2)");            
+          116 +                case ChangeType.NEW: newCount++; break;                                                                   
+          117 +                case ChangeType.UPDATED: updatedCount++; break;                                                           
+          118 +                case ChangeType.DELETED: deletedCount++; break;                                                           
+          119              }
+          101 -                                                                                                                          
+          102 -            // Step 9: Load customer names (cached if same file as previous iteration)                                    
+          103 -            if (resolvedCustomerDate != lastResolvedCustomerDate)                                                         
+          104 -            {                                                                                                             
+          105 -                var custPath = GetFilePath("customers", resolvedCustomerDate.Value);                                      
+          106 -                var custTimer = Stopwatch.StartNew();                                                                     
+          107 -                customerNames = CustomerFileReader.ReadFile(custPath);                                                    
+          108 -                custTimer.Stop();                                                                                         
+          109 -                lastResolvedCustomerDate = resolvedCustomerDate;                                                          
+          110 -                Log($"  Loaded customer file {resolvedCustomerDate.Value:yyyyMMdd}: {customerNames.Count:N0} customers ({c
+              -ustTimer.ElapsedMilliseconds}ms)");                                                                                       
+          111 -            }                                                                                                             
+          112 -            else                                                                                                          
+          113 -            {                                                                                                             
+          114 -                Log($"  Reusing cached customer file {resolvedCustomerDate.Value:yyyyMMdd}");                             
+          115 -            }                                                                                                             
+          116 -                                                                                                                          
+          117 -            // Steps 12-15: Change detection                                                                              
+          118 -            var detectTimer = Stopwatch.StartNew();                                                                       
+          119 -            var changes = ChangeDetector.DetectChanges(previousAddresses!, currentAddresses, customerNames!);             
+          120 -            detectTimer.Stop();                                                                                           
+          121 -                                                                                                                          
+          122 -            int newCount = 0, updatedCount = 0, deletedCount = 0;                                                         
+          123 -            foreach (var c in changes)                                                                                    
+          124 -            {                                                                                                             
+          125 -                switch (c.ChangeType)                                                                                     
+          126 -                {                                                                                                         
+          127 -                    case ChangeType.NEW: newCount++; break;                                                               
+          128 -                    case ChangeType.UPDATED: updatedCount++; break;                                                       
+          129 -                    case ChangeType.DELETED: deletedCount++; break;                                                       
+          130 -                }                                                                                                         
+          131 -            }                                                                                                             
+          132 -            Log($"  Changes detected: {changes.Count:N0} (NEW={newCount:N0}, UPDATED={updatedCount:N0}, DELETED={deletedCo
+              -unt:N0}) ({detectTimer.ElapsedMilliseconds}ms)");                                                                         
+          133 -                                                                                                                          
+          134 -            // Step 16: Write output file                                                                                 
+          135 -            // Implements BR-8: File is always produced, even with zero changes                                           
+          136 -            var outputPath = Path.Combine(_outputDir, $"address_changes_{currentDate:yyyyMMdd}.csv");                     
+          137 -            var writeTimer = Stopwatch.StartNew();                                                                        
+          138 -            ChangeLogWriter.Write(outputPath, changes);                                                                   
+          139 -            writeTimer.Stop();                                                                                            
+          140 -            Log($"  Output written: {outputPath} ({writeTimer.ElapsedMilliseconds}ms)");                                  
+          141 -                                                                                                                          
+          142 -            // Step 17: Current becomes previous for next iteration                                                       
+          143 -            // The previous-day dictionary is released for GC once reassigned.                                            
+          144 -            previousAddresses = currentAddresses;                                                                         
+          145 -                                                                                                                          
+          146 -            dayTimer.Stop();                                                                                              
+          147 -            Log($"  Day complete ({dayTimer.ElapsedMilliseconds}ms)");                                                    
+          120          }
+          121 +        Log($"Changes detected: {changes.Count:N0} (NEW={newCount:N0}, UPDATED={updatedCount:N0}, DELETED={deletedCount:N0
+              +}) ({detectTimer.ElapsedMilliseconds}ms)");                                                                               
+          122  
+          123 +        // --- Write output file ---                                                                                      
+          124 +        // Implements BR-8: File is always produced, even with zero changes.                                              
+          125 +        var outputPath = Path.Combine(_outputDir, $"address_changes_{_effectiveDate:yyyyMMdd}.csv");                      
+          126 +        var writeTimer = Stopwatch.StartNew();                                                                            
+          127 +        ChangeLogWriter.Write(outputPath, changes);                                                                       
+          128 +        writeTimer.Stop();                                                                                                
+          129 +        Log($"Output written: {outputPath} ({writeTimer.ElapsedMilliseconds}ms)");                                        
+          130 +                                                                                                                          
+          131          totalTimer.Stop();
+          132          Log($"ETL processing complete. Total elapsed: {totalTimer.Elapsed.TotalSeconds:F1}s");
+          133      }
+          134  
+          135      /// <summary>
+          155 -    /// Discovers all files matching the pattern {prefix}_YYYYMMDD.csv in the input directory,                            
+          156 -    /// extracts dates, and returns them sorted ascending.                                                                
+          157 -    /// Implements Section 5.1, Steps 1-2.                                                                                
+          136 +    /// Discovers all customer file dates in the input directory.                                                         
+          137 +    /// Used for customer file resolution (Section 2.3).                                                                  
+          138      /// </summary>
+          159 -    private List<DateOnly> DiscoverDates(string prefix)                                                                   
+          139 +    private List<DateOnly> DiscoverCustomerDates()                                                                        
+          140      {
+          161 -        var pattern = $"{prefix}_*.csv";                                                                                  
+          141 +        var pattern = "customers_*.csv";                                                                                  
+          142          var files = Directory.GetFiles(_inputDir, pattern);
+          143          var dates = new List<DateOnly>();
+          144 +        const int prefixLen = 10; // "customers_"                                                                         
+          145  
+          165 -        int prefixLen = prefix.Length + 1; // "prefix_"                                                                   
+          166 -                                                                                                                          
+          146          foreach (var file in files)
+          147          {
+          148              var name = Path.GetFileNameWithoutExtension(file);
+          170 -                                                                                                                          
+          149              if (name.Length < prefixLen + 8)
+          172 -                continue; // filename too short to contain a date                                                         
+          150 +                continue;                                                                                                 
+          151  
+          152              var datePart = name[prefixLen..];
+          175 -                                                                                                                          
+          153              if (DateOnly.TryParseExact(datePart, "yyyyMMdd", CultureInfo.InvariantCulture,
+          154                      DateTimeStyles.None, out var date))
+          155              {
+         ...
+          162      }
+          163  
+          164      /// <summary>
+          188 -    /// Resolves the customer file to use for a given processing date.                                                    
+          165 +    /// Resolves the customer file to use for the effective date.                                                         
+          166      /// Implements Section 2.3, Decision D-2 (Option B):
+          190 -    ///   Use the most recent customer file whose date is &lt;= the current processing date.                              
+          167 +    ///   Use the most recent customer file whose date is &lt;= the effective date.                                       
+          168      ///
+          169      /// Uses binary search for O(log N) lookup on sorted customer dates.
+          193 -    /// Implements BR-13: Customer file does not need to match the processing date exactly.                               
+          170      /// </summary>
+          195 -    private static DateOnly? ResolveCustomerDate(List<DateOnly> sortedDates, DateOnly currentDate)                        
+          171 +    private static DateOnly? ResolveCustomerDate(List<DateOnly> sortedDates, DateOnly effectiveDate)                      
+          172      {
+          173          if (sortedDates.Count == 0)
+          174              return null;
+          175  
+          200 -        int index = sortedDates.BinarySearch(currentDate);                                                                
+          176 +        int index = sortedDates.BinarySearch(effectiveDate);                                                              
+          177  
+          178          if (index >= 0)
+          179              return sortedDates[index]; // exact match
+          180  
+          205 -        // BinarySearch returns ~insertionPoint when not found                                                            
+          181          int insertionPoint = ~index;
+          207 -                                                                                                                          
+          182          if (insertionPoint == 0)
+          209 -            return null; // all customer dates are after the current date                                                 
+          183 +            return null; // all customer dates are after the effective date                                               
+          184  
+          211 -        return sortedDates[insertionPoint - 1]; // most recent date before current                                        
+          185 +        return sortedDates[insertionPoint - 1];                                                                           
+          186      }
+          187  
+          214 -    /// <summary>                                                                                                         
+          215 -    /// Builds the full file path for a given prefix and date.                                                            
+          216 -    /// E.g., prefix="addresses", date=2024-10-02 -> "{inputDir}/addresses_20241002.csv"                                  
+          217 -    /// </summary>                                                                                                        
+          218 -    private string GetFilePath(string prefix, DateOnly date)                                                              
+          188 +    private string BuildAddressPath(DateOnly date)                                                                        
+          189      {
+          220 -        var path = Path.Combine(_inputDir, $"{prefix}_{date:yyyyMMdd}.csv");                                              
+          221 -                                                                                                                          
+          222 -        // Section 6.1, Decision D-5: Halt on missing address file                                                        
+          223 -        if (!File.Exists(path))                                                                                           
+          224 -        {                                                                                                                 
+          225 -            throw new InvalidOperationException(                                                                          
+          226 -                $"Expected input file does not exist: {path} (Section 6.1)");                                             
+          227 -        }                                                                                                                 
+          228 -                                                                                                                          
+          229 -        return path;                                                                                                      
+          190 +        return Path.Combine(_inputDir, $"addresses_{date:yyyyMMdd}.csv");                                                 
+          191      }
+          192  
+          193      private static void Log(string message)
+    
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges/Validation/InputValidator.cs)
+      ⎿  Added 17 lines, removed 14 lines
+           2  
+           3  /// <summary>
+           4  /// Pre-flight validation of input data before pipeline execution.
+           5 -/// Implements Section 5.1, Step 5 and Section 6 error conditions.                                                         
+           5 +/// Fails fast before any data loading to avoid wasted I/O on large files.                                                 
+           6  /// </summary>
+           7  public static class InputValidator
+           8  {
+           9      /// <summary>
+          10 -    /// Validates that at least two address dates exist.                                                                   
+          11 -    /// Section 5.1, Step 5: The pipeline requires a baseline (first date) plus at least                                   
+          12 -    /// one processing date to produce output. With only one date, there is nothing to                                     
+          13 -    /// compare against, so processing completes with no output.                                                           
+          10 +    /// Validates that the required address snapshot files exist for the effective date                                    
+          11 +    /// and its previous calendar day.                                                                                     
+          12      ///
+          15 -    /// Implements BR-1: The first date is the baseline; output starts from the second date.                               
+          13 +    /// The ETL requires two address files:                                                                                
+          14 +    ///   - addresses_YYYYMMDD.csv for the effective date (current-day snapshot)                                           
+          15 +    ///   - addresses_YYYYMMDD.csv for effective date - 1 (previous-day snapshot)                                          
+          16 +    ///                                                                                                                    
+          17 +    /// Section 6.1, Decision D-5: Halt if a required address file is missing.                                             
+          18      /// </summary>
+          17 -    public static void ValidateMinimumDates(List<DateOnly> addressDates)                                                   
+          19 +    public static void ValidateRequiredFiles(string inputDir, DateOnly effectiveDate, DateOnly previousDate)               
+          20      {
+          19 -        if (addressDates.Count == 0)                                                                                       
+          21 +        var previousPath = Path.Combine(inputDir, $"addresses_{previousDate:yyyyMMdd}.csv");                               
+          22 +        if (!File.Exists(previousPath))                                                                                    
+          23          {
+          24              throw new InvalidOperationException(
+          22 -                "No address snapshot files found in the input directory. " +                                               
+          23 -                "Expected files matching pattern: addresses_YYYYMMDD.csv");                                                
+          25 +                $"Previous-day address file not found: {previousPath}. " +                                                 
+          26 +                $"The effective date {effectiveDate:yyyyMMdd} requires the prior day's " +                                 
+          27 +                $"snapshot ({previousDate:yyyyMMdd}) for comparison.");                                                    
+          28          }
+          29  
+          26 -        if (addressDates.Count < 2)                                                                                        
+          30 +        var currentPath = Path.Combine(inputDir, $"addresses_{effectiveDate:yyyyMMdd}.csv");                               
+          31 +        if (!File.Exists(currentPath))                                                                                     
+          32          {
+          33              throw new InvalidOperationException(
+          29 -                $"Only one address snapshot found ({addressDates[0]:yyyyMMdd}). " +                                        
+          30 -                "At least two snapshots are required: one baseline and one processing date. " +                            
+          31 -                "(Section 5.1, Step 5)");                                                                                  
+          34 +                $"Effective-date address file not found: {currentPath}.");                                                 
+          35          }
+          36      }
+          37  }
+    
+    ● Build and test:
+    
+    ● Bash(cd /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges && dotnet build 2>&1)
+      ⎿  MSBuild version 17.8.31+af11d4f25 for .NET
+           Determining projects to restore...
+           Restored /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges/ClaudeAddressChanges.csproj (in 168 ms).
+         … +8 lines (ctrl+o to expand)
+    
+    ● Bash(rm -f /tmp/etl_output/address_changes_*.csv && for date in 20241002 20241003 20241004 20241005 20241006 20241007; do echo "===
+          Running effective date $date ==="…)
+      ⎿  === Running effective date 20241002 ===
+         [14:32:05.007] Changes detected: 2 (NEW=1, UPDATED=1, DELETED=0) (1ms)
+         [14:32:05.010] Output written: /tmp/etl_output/address_changes_20241002.csv (2ms)
+         … +20 lines (ctrl+o to expand)
+    
+    ● Bash(cd /tmp/etl_output && for f in address_changes_*.csv; do echo "=== $f ===" && diff <(cat
+          "/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Curated/$f") <(cat "$f")…)
+      ⎿  === address_changes_20241002.csv ===
+         MATCH
+         … +14 lines (ctrl+o to expand)
+      ⎿  Shell cwd was reset to /home/dan
+    
+    ● All 6 dates match. Now let me update the specification and test cases.
+    
+    ● Read 1 file (ctrl+o to expand)
+    
+    ● Now let me update the spec. I'll make targeted edits to the affected sections.
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 9 lines, removed 8 lines
+          19  1.2 Scope
+          20  
+          21    - Input:   Daily address snapshot files and daily customer snapshot files.
+          22 -  - Output:  Daily address change log files.                                                                               
+          23 -  - The pipeline processes one pair of consecutive days at a time (previous day vs. current day).                          
+          24 -  - The pipeline must process all available consecutive day-pairs in a single run when multiple                            
+          25 -    input dates are present.                                                                                               
+          22 +  - Output:  A single address change log file per invocation.                                                              
+          23 +  - The pipeline processes exactly one effective date per run. It compares the effective                                   
+          24 +    date's address snapshot against the previous calendar day's snapshot                                                   
+          25 +    (effective_date - 1 day) and produces one change log file.                                                             
+          26 +  - To process a range of dates, the caller invokes the pipeline once per date.                                            
+          27  
+          28  1.3 Glossary
+          29  
+          30    Term              | Definition
+          31    ------------------|-------------------------------------------------------------------
+          31 -  Baseline          | The first chronological input date; used only as a comparison anchor                                 
+          32 -  Current day       | The date being processed (produces an output file)                                                   
+          33 -  Previous day      | The date immediately before the current day in the input sequence                                    
+          32 +  Effective date    | The date supplied by the caller; the pipeline produces output for this date                          
+          33 +  Current day       | Synonym for effective date — the date being processed                                                
+          34 +  Previous day      | The calendar day immediately before the effective date (effective_date - 1)                          
+          35    Snapshot          | A complete addresses or customers file for a single date
+          35 -  Change log        | The output file listing NEW and UPDATED address records for one day                                  
+          36 +  Change log        | The output file listing NEW, UPDATED, and DELETED address records                                    
+          37    address_id        | The unique identifier for an address record (primary comparison key)
+          38  
+          39  
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 1 line, removed 1 line
+          112  3.1 Change Log Files
+          113  
+          114    File naming:    address_changes_YYYYMMDD.csv
+          115 -                  Where YYYYMMDD matches the current-day processing date.                                                 
+          115 +                  Where YYYYMMDD matches the effective date.                                                              
+          116    Format:         CSV
+          117    Encoding:       UTF-8
+          118  
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 40 lines, removed 48 lines
+          341  5. Functional Processing Flow
+          342  ------------------------------
+          343  
+          344 -5.1 Initialization                                                                                                        
+          344 +5.1 Input                                                                                                                 
+          345  
+          346 -  Step 1:  Discover all available address input files matching the pattern                                                
+          347 -           addresses_YYYYMMDD.csv in the input directory.                                                                 
+          346 +  The pipeline is invoked with three parameters:                                                                          
+          347 +    - Input directory:   path containing addresses_YYYYMMDD.csv and customers_YYYYMMDD.csv files                          
+          348 +    - Output directory:  path where the output file will be written                                                       
+          349 +    - Effective date:    the date to process, in YYYYMMDD format                                                          
+          350  
+          349 -  Step 2:  Sort discovered dates in ascending chronological order.                                                        
+          351 +5.2 Initialization                                                                                                        
+          352  
+          351 -  Step 3:  Designate the first (earliest) date as the BASELINE.                                                           
+          352 -           No output file is produced for the baseline date.                                                              
+          353 +  Step 1:  Compute the previous date as effective_date minus 1 calendar day.                                              
+          354 +           Example: effective date 2024-10-05 -> previous date 2024-10-04.                                                
+          355  
+          354 -  Step 4:  Discover all available customer input files matching the pattern                                               
+          356 +  Step 2:  Validate that the required address files exist (pre-flight):                                                   
+          357 +             - addresses_YYYYMMDD.csv for the previous date                                                               
+          358 +             - addresses_YYYYMMDD.csv for the effective date                                                              
+          359 +           If either file is missing, halt with error (Section 6.1).                                                      
+          360 +                                                                                                                          
+          361 +  Step 3:  Discover all available customer input files matching the pattern                                               
+          362             customers_YYYYMMDD.csv in the input directory.
+          363  
+          357 -  Step 5:  Validate that at least two address input dates exist.                                                          
+          358 -           If only one date exists, processing completes with no output.                                                  
+          364 +5.3 Processing                                                                                                            
+          365  
+          360 -5.2 Daily Processing Loop                                                                                                 
+          366 +    Step 4:   Load the PREVIOUS-DAY address snapshot into a lookup index                                                  
+          367 +              keyed by address_id.                                                                                        
+          368  
+          362 -  For each date D(i) from the second date onward (i = 2, 3, ... N):                                                       
+          369 +    Step 5:   Load the EFFECTIVE-DATE address snapshot into a lookup index                                                
+          370 +              keyed by address_id.                                                                                        
+          371  
+          364 -    Step 6:   Load the PREVIOUS-DAY address snapshot: addresses file for D(i-1).                                          
+          372 +    Step 6:   Resolve the customer file for the effective date per Section 2.3.                                           
+          373 +              Load the resolved customer snapshot into a lookup index keyed                                               
+          374 +              by customers.id, pre-computing customer_name.                                                               
+          375  
+          366 -    Step 7:   Load the CURRENT-DAY address snapshot: addresses file for D(i).                                             
+          376 +    Step 7:   Initialize an empty change list.                                                                            
+          377  
+          368 -    Step 8:   Resolve the customer file for D(i) per Section 2.3.                                                         
+          369 -              Load the resolved customer snapshot.                                                                        
+          370 -                                                                                                                          
+          371 -    Step 9:   Build a lookup index of customer records keyed by customers.id.                                             
+          372 -                                                                                                                          
+          373 -    Step 10:  Build a lookup index of previous-day address records keyed by address_id.                                   
+          374 -                                                                                                                          
+          375 -    Step 11:  Build a lookup index of current-day address records keyed by address_id.                                    
+          376 -                                                                                                                          
+          377 -    Step 12:  Initialize an empty change list.                                                                            
+          378 -                                                                                                                          
+          379 -    Step 13:  FOR EACH address_id in the current-day index:                                                               
+          378 +    Step 8:   FOR EACH address_id in the effective-date index:                                                            
+          379                  - If address_id NOT in previous-day index:
+          380                      -> Create output record with change_type = NEW
+          382 -                    -> Populate all fields from current-day address record                                                
+          381 +                    -> Populate all fields from effective-date address record                                             
+          382                      -> Resolve customer_name via customer lookup using customer_id
+          383                      -> Apply end_date NULL-to-empty transformation
+          384                      -> Append to change list
+          385                  - If address_id IS in previous-day index:
+          387 -                    -> Compare all field values between current and previous                                              
+          386 +                    -> Compare all field values between effective-date and previous-day                                   
+          387                      -> If any difference found:
+          388                           -> Create output record with change_type = UPDATED
+          390 -                         -> Populate all fields from current-day address record                                           
+          389 +                         -> Populate all fields from effective-date address record                                        
+          390                           -> Resolve customer_name via customer lookup
+          391                           -> Apply end_date NULL-to-empty transformation
+          392                           -> Append to change list
+          393                      -> If no differences: skip (do not include in output)
+          394  
+          396 -    Step 14:  (If DELETED is implemented per Section 4.1)                                                                 
+          395 +    Step 9:   (If DELETED is implemented per Section 4.1)                                                                 
+          396                FOR EACH address_id in the previous-day index:
+          398 -                - If address_id NOT in current-day index:                                                                 
+          397 +                - If address_id NOT in effective-date index:                                                              
+          398                      -> Create output record with change_type = DELETED
+          399                      -> Populate all fields from previous-day address record
+          400                      -> Resolve customer_name via customer lookup
+          401                      -> Apply end_date NULL-to-empty transformation
+          402                      -> Append to change list
+          403  
+          405 -    Step 15:  Sort the change list by address_id ascending.                                                               
+          404 +    Step 10:  Sort the change list by address_id ascending.                                                               
+          405  
+          407 -    Step 16:  Write the output file address_changes_YYYYMMDD.csv for date D(i):                                           
+          406 +    Step 11:  Write the output file address_changes_YYYYMMDD.csv for the effective date:                                  
+          407                  - Write header row
+          408                  - Write all data rows from the sorted change list
+          409                  - Write a blank line
+          410                  - Write footer: "Expected records: N" where N = length of change list
+          411  
+          413 -    Step 17:  Proceed to next date D(i+1), or finish if no more dates.                                                    
+          412 +5.4 Processing Flow Diagram                                                                                               
+          413  
+          415 -5.3 Processing Flow Diagram                                                                                               
+          416 -                                                                                                                          
+          417 -  [Discover input files]                                                                                                  
+          414 +  [Receive effective date]                                                                                                
+          415           |
+          416           v
+          420 -  [Sort dates chronologically]                                                                                            
+          417 +  [Compute previous date = effective_date - 1]                                                                            
+          418           |
+          419           v
+          423 -  [Date 1 = BASELINE, no output]                                                                                          
+          420 +  [Validate both address files exist]                                                                                     
+          421           |
+          422           v
+          426 -  [For each subsequent date D(i):]                                                                                        
+          423 +  [Load addresses for previous date]                                                                                      
+          424 +  [Load addresses for effective date]                                                                                     
+          425 +  [Resolve & load customers for effective date]                                                                           
+          426           |
+          428 -         +---> [Load addresses D(i-1)]                                                                                    
+          429 -         +---> [Load addresses D(i)]                                                                                      
+          430 -         +---> [Resolve & load customers for D(i)]                                                                        
+          431 -         |                                                                                                                
+          427           v
+          428    [Compare address snapshots by address_id]
+          429           |
+          435 -         +---> [NEW: in current, not in previous]                                                                         
+          430 +         +---> [NEW: in effective date, not in previous]                                                                  
+          431           +---> [UPDATED: in both, fields differ]
+          437 -         +---> [DELETED: in previous, not in current] (if implemented)                                                    
+          432 +         +---> [DELETED: in previous, not in effective date] (if implemented)                                             
+          433           +---> [UNCHANGED: in both, identical -> skip]
+          434           |
+          435           v
+         ...
+          440           |
+          441           v
+          442    [Write output file: header + data rows + blank line + footer]
+          448 -         |                                                                                                                
+          449 -         v                                                                                                                
+          450 -  [Next date or finish]                                                                                                   
+          443  
+          444  
+          445  6. Error Handling Behavior
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 3 lines, removed 5 lines
+          447  
+          448  6.1 Missing Address File
+          449  
+          450 -  Condition:   An expected address file for a date in the sequence is missing.                                            
+          451 -  Behavior:    DECISION REQUIRED. Options:                                                                                
+          452 -               (a) Skip that date pair and continue with the next available pair.                                         
+          453 -               (b) Halt processing with an error.                                                                         
+          454 -  Recommended: (b) Halt. Missing snapshot data compromises change detection integrity.                                    
+          450 +  Condition:   Either the effective-date or previous-day address file does not exist.                                     
+          451 +  Behavior:    Halt processing with an error identifying which file is missing.                                           
+          452 +               Both files are required: the effective date and the previous calendar day.                                 
+          453  
+          454  6.2 Missing Customer File
+          455  
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 2 lines, removed 2 lines
+          453  
+          454  6.2 Missing Customer File
+          455  
+          456 -  Condition:   No customer file can be resolved for the current processing date                                           
+          456 +  Condition:   No customer file can be resolved for the effective date                                                    
+          457                 (per Section 2.3 resolution strategy).
+          458 -  Behavior:    Halt processing with an error indicating which date lacks customer data.                                   
+          458 +  Behavior:    Halt processing with an error indicating the effective date lacks customer data.                           
+          459    Traceability: TC-35
+          460  
+          461  6.3 Orphaned Customer ID
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 9 lines, removed 7 lines
+          499  
+          500  7.2 File Generation Guarantee
+          501  
+          502 -  An output file SHALL be produced for every processing date (every date after the baseline),                             
+          503 -  regardless of whether any changes were detected.                                                                        
+          502 +  An output file SHALL be produced for every invocation, regardless of whether any                                        
+          503 +  changes were detected. A zero-change run produces a file with header, blank line,                                       
+          504 +  and "Expected records: 0".                                                                                              
+          505  
+          505 -  Traceability: BR-8 | TC-20, TC-21                                                                                       
+          506 +  Traceability: BR-8 | TC-20                                                                                              
+          507  
+          508  7.3 Atomicity
+          509  
+          509 -  Each output file SHOULD be written atomically (e.g., write to a temporary file, then rename)                            
+          510 +  The output file SHOULD be written atomically (e.g., write to a temporary file, then rename)                             
+          511    to prevent partial files from being consumed by downstream processes.
+          512  
+          512 -7.4 Processing Order                                                                                                      
+          513 +7.4 Multi-Date Processing                                                                                                 
+          514  
+          514 -  Dates SHALL be processed in strict chronological order. Each day's comparison depends on                                
+          515 -  the previous day's snapshot, so parallel processing of day-pairs is not appropriate.                                    
+          515 +  To process a range of dates, the caller invokes the pipeline once per effective date,                                   
+          516 +  in chronological order. Each invocation is independent and self-contained. The caller                                   
+          517 +  is responsible for iterating over the date range.                                                                       
+          518  
+          519  
+          520  8. Traceability Matrix
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 3 lines, removed 3 lines
+          522  
+          523  Requirement | Functional Behavior (Section)              | Test Cases
+          524  ------------|--------------------------------------------|---------------------------------
+          525 -BR-1        | 5.1 Step 3: Baseline produces no output    | TC-01, TC-02                                                   
+          526 -BR-2        | 5.2 Steps 6-7: Consecutive day comparison  | TC-03, TC-04, TC-05, TC-44, TC-46                              
+          525 +BR-1        | 5.2 Step 1: Previous day = effective - 1   | TC-01, TC-02                                                   
+          526 +BR-2        | 5.3 Steps 4-5: Effective vs previous day   | TC-03, TC-04, TC-05, TC-44, TC-46                              
+          527  BR-3        | 4.1, 4.2: NEW classification               | TC-06, TC-07, TC-08, TC-34
+          528  BR-4        | 4.1, 4.2: UPDATED classification           | TC-09, TC-10, TC-11, TC-12, TC-26, TC-37, TC-38, TC-40
+          529  BR-5        | 4.4: Current-day values in output          | TC-03, TC-04, TC-05, TC-09, TC-12, TC-13, TC-14
+          530  BR-6        | 4.3: Customer name derivation              | TC-15, TC-16, TC-17, TC-18, TC-32, TC-40, TC-42
+          531  BR-7        | 4.3: Excluded customer fields              | TC-19, TC-43
+          532 -BR-8        | 7.2: File always generated                 | TC-20, TC-21, TC-28                                            
+          532 +BR-8        | 7.2: File always generated                 | TC-20, TC-28                                                   
+          533  BR-9        | 4.7, 3.2: Record count footer              | TC-22, TC-23, TC-24, TC-45
+          534  BR-10       | 4.5: NULL to empty conversion              | TC-25, TC-26
+          535  BR-11       | 4.1: Unchanged records excluded            | TC-27, TC-28
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)
+      ⎿  Added 1 line, removed 1 line
+          554  D-2      | Customer file resolution     | 2.3     | A-3/A-7   | Most recent file <= current date
+          555  D-3      | Orphan customer_id handling  | 4.3     | A-5       | Halt with error
+          556  D-4      | Duplicate address_id in file | 6.4     | CG-5      | Halt with error
+          557 -D-5      | Missing address file in seq  | 6.1     | CG-4      | Halt with error                                           
+          557 +D-5      | Missing address file         | 6.1     | CG-4      | Halt with error                                           
+          558  
+          559  
+          560  10. Appendix: Complete Field Mapping
+    
+    ● Now update the business requirements document — BR-1 and BR-2.
+    
+    ● Read 1 file (ctrl+o to expand)
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesBusinessReq.txt)
+      ⎿  Added 5 lines, removed 4 lines
+          84  Inferred Business Rules
+          85  -----------------------
+          86  
+          87 -BR-1:  The first available input date serves as the baseline; no change output is produced for it.                         
+          88 -       Evidence: No output file for Oct 1; output starts Oct 2.                                                            
+          87 +BR-1:  The pipeline processes a single effective date per invocation. The previous day is always                           
+          88 +       the calendar day immediately before the effective date (effective_date - 1).                                        
+          89 +       Evidence: Oct 2 output compares against Oct 1; Oct 5 compares against Oct 4; etc.                                   
+          90         Confidence: High
+          91  
+          91 -BR-2:  Each day's address snapshot is compared to the immediately preceding day's snapshot to                              
+          92 -       detect changes.                                                                                                     
+          92 +BR-2:  The effective date's address snapshot is compared to the previous calendar day's snapshot                           
+          93 +       to detect changes.                                                                                                  
+          94         Evidence: Changes on Oct 2 are relative to Oct 1; Oct 4 relative to Oct 3; etc.
+          95         Confidence: High
+          96  
+    
+    ● Now update the test cases document.
+    
+    ● Read 1 file (ctrl+o to expand)
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 2 lines, removed 2 lines
+          23  
+          24  Business Rule                              | Test Case IDs
+          25  -------------------------------------------|--------------------------------------
+          26 -BR-1  (Baseline produces no output)        | TC-01, TC-02                                                                  
+          27 -BR-2  (Day-over-day comparison)            | TC-03, TC-04, TC-05                                                           
+          26 +BR-1  (Previous day = effective - 1)        | TC-01, TC-02                                                                 
+          27 +BR-2  (Effective vs previous day compare)  | TC-03, TC-04, TC-05                                                           
+          28  BR-3  (NEW classification)                 | TC-06, TC-07, TC-08
+          29  BR-4  (UPDATED classification)             | TC-09, TC-10, TC-11, TC-12
+          30  BR-5  (Output reflects current-day values) | TC-13, TC-14
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 1 line, removed 1 line
+          30  BR-5  (Output reflects current-day values) | TC-13, TC-14
+          31  BR-6  (Customer name join: first + last)   | TC-15, TC-16, TC-17, TC-18
+          32  BR-7  (No other customer fields in output) | TC-19
+          33 -BR-8  (Output file always generated)       | TC-20, TC-21                                                                  
+          33 +BR-8  (Output file always generated)       | TC-20                                                                         
+          34  BR-9  (Expected records footer)            | TC-22, TC-23, TC-24
+          35  BR-10 (NULL end_date -> empty)             | TC-25, TC-26
+          36  BR-11 (Unchanged records excluded)         | TC-27, TC-28
+    
+    ● Now update the individual test cases — TC-01, TC-02, TC-03, TC-04, TC-05, TC-20, TC-21, TC-44, TC-46.
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 16 lines, removed 11 lines
+          48  
+          49  === Tier 1 — Normal / Positive Cases (Regression) ===
+          50  
+          51 -TC-01: Baseline day produces no output file                                                                                
+          52 -  Purpose:     Confirm the first input date is treated as baseline only.                                                   
+          53 -  Input:       addresses_20241001.csv (23 records), customers_20241001.csv (23 records).                                   
+          54 -               No prior-day file.                                                                                          
+          55 -  Expected:    No address_changes_20241001.csv file is produced.                                                           
+          56 -  Validation:  Assert file does not exist.                                                                                 
+          51 +TC-01: Missing previous-day file produces error                                                                            
+          52 +  Purpose:     Confirm that running with an effective date whose previous-day file does not                                
+          53 +               exist results in an error, not silent success.                                                              
+          54 +  Input:       Effective date = 20241001. Only addresses_20241001.csv exists in input dir.                                 
+          55 +               No addresses_20240930.csv file.                                                                             
+          56 +  Expected:    ETL halts with a non-zero exit code and an error message referencing the                                    
+          57 +               missing previous-day file.                                                                                  
+          58 +  Validation:  Assert exit code = 1; assert error message mentions addresses_20240930.csv.                                 
+          59    Covers:      BR-1
+          60  
+          59 -TC-02: Baseline with a single input day                                                                                    
+          60 -  Purpose:     Confirm that if only one date of input is provided, no output is generated.                                 
+          61 -  Input:       Single addresses file addresses_20250101.csv with 5 records; matching customers file.                       
+          62 -  Expected:    No output file.                                                                                             
+          63 -  Validation:  Assert no address_changes_* files created.                                                                  
+          61 +TC-02: Missing effective-date file produces error                                                                          
+          62 +  Purpose:     Confirm that running with an effective date whose own snapshot file does not                                
+          63 +               exist results in an error.                                                                                  
+          64 +  Input:       Effective date = 20250102. addresses_20250101.csv exists but                                                
+          65 +               addresses_20250102.csv does not.                                                                            
+          66 +  Expected:    ETL halts with a non-zero exit code and an error message referencing the                                    
+          67 +               missing effective-date file.                                                                                
+          68 +  Validation:  Assert exit code = 1; assert error message mentions addresses_20250102.csv.                                 
+          69    Covers:      BR-1
+          70  
+          71  TC-03: Regression — Oct 1 -> Oct 2 change detection
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 3 lines, removed 2 lines
+          68    Validation:  Assert exit code = 1; assert error message mentions addresses_20250102.csv.
+          69    Covers:      BR-1
+          70  
+          71 -TC-03: Regression — Oct 1 -> Oct 2 change detection                                                                        
+          71 +TC-03: Regression — effective date 20241002                                                                                
+          72    Purpose:     Validate exact match against known provided output.
+          73 -  Input:       addresses_20241001.csv, addresses_20241002.csv, customers_20241002.csv                                      
+          73 +  Input:       Effective date = 20241002. Compares addresses_20241002.csv vs addresses_20241001.csv.                       
+          74 +               Customer file: customers_20241002.csv.                                                                      
+          75    Expected:    address_changes_20241002.csv containing:
+          76                 ---------------------------------------------------------------
+          77                 change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start
+              _date,end_date
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 3 lines, removed 2 lines
+          83    Validation:  Byte-for-byte match of output file content.
+          84    Covers:      BR-2, BR-3, BR-4, BR-5, BR-6, BR-9, BR-10, BR-12
+          85  
+          86 -TC-04: Regression — Oct 3 -> Oct 4 change detection                                                                        
+          86 +TC-04: Regression — effective date 20241004                                                                                
+          87    Purpose:     Validate single UPDATED record output.
+          88 -  Input:       addresses_20241003.csv, addresses_20241004.csv, customers_20241004.csv                                      
+          88 +  Input:       Effective date = 20241004. Compares addresses_20241004.csv vs addresses_20241003.csv.                       
+          89 +               Customer file: customers_20241004.csv.                                                                      
+          90    Expected:    address_changes_20241004.csv containing:
+          91                 ---------------------------------------------------------------
+          92                 change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start
+              _date,end_date
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 3 lines, removed 2 lines
+           97    Validation:  Exact match.
+           98    Covers:      BR-2, BR-4, BR-5, BR-6, BR-9
+           99  
+          100 -TC-05: Regression — Oct 4 -> Oct 5 change detection                                                                       
+          100 +TC-05: Regression — effective date 20241005                                                                               
+          101    Purpose:     Validate single NEW record output.
+          102 -  Input:       addresses_20241004.csv, addresses_20241005.csv, appropriate customers file.                                
+          102 +  Input:       Effective date = 20241005. Compares addresses_20241005.csv vs addresses_20241004.csv.                      
+          103 +               Customer file resolved to customers_20241004.csv (most recent <= effective date).                          
+          104    Expected:    address_changes_20241005.csv containing:
+          105                 ---------------------------------------------------------------
+          106                 change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,star
+               t_date,end_date
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 5 lines, removed 3 lines
+          233  
+          234  TC-20: Zero-change day still produces output file
+          235    Purpose:     Confirm file generation even when no records differ.
+          236 -  Input:       Two identical consecutive address files.                                                                   
+          236 +  Input:       Effective date = day2. addresses_day1.csv and addresses_day2.csv are identical.                            
+          237    Expected:    File exists with header row, blank line, and "Expected records: 0".
+          238    Validation:  File exists; header present; zero data rows; footer reads 0.
+          239    Covers:      BR-8, BR-9
+          240  
+          241 -TC-21: Multiple consecutive zero-change days                                                                              
+          242 -  Purpose:     Confirm every day in sequence generates a file, not just the first zero-change day.                        
+          241 +TC-21: Multiple zero-change days run independently                                                                        
+          242 +  Purpose:     Confirm that running separate invocations for consecutive zero-change dates                                
+          243 +               each produces an independent output file.                                                                  
+          244    Input:       addresses_day1 = addresses_day2 = addresses_day3 = addresses_day4 (all identical).
+          245 +               Run three times: effective date = day2, day3, day4.                                                        
+          246    Expected:    Three output files (day2, day3, day4), each with 0 records.
+          247    Covers:      BR-8
+          248  
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 2 lines, removed 2 lines
+          441  
+          442  TC-44: Output file naming convention
+          443    Purpose:     Validate output file name matches pattern address_changes_YYYYMMDD.csv
+          444 -               where YYYYMMDD is the current-day date.                                                                    
+          445 -  Input:       addresses_20250115.csv, addresses_20250116.csv                                                             
+          444 +               where YYYYMMDD is the effective date.                                                                      
+          445 +  Input:       Effective date = 20250116. addresses_20250115.csv and addresses_20250116.csv exist.                        
+          446    Expected:    File named address_changes_20250116.csv
+          447    Covers:      BR-2 (implicit)
+          448  
+    
+    ● Update(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)
+      ⎿  Added 5 lines, removed 3 lines
+          453    Validation:  Assert line structure of file.
+          454    Covers:      BR-9
+          455  
+          456 -TC-46: Full week regression — all 7 days end-to-end                                                                       
+          457 -  Purpose:     Run the entire provided input through the ETL and compare all 6 output files                               
+          458 -               against provided output.                                                                                   
+          456 +TC-46: Full week regression — all 6 effective dates                                                                       
+          457 +  Purpose:     Run the ETL once for each effective date (20241002 through 20241007)                                       
+          458 +               and compare each output file against provided output.                                                      
+          459    Input:       All 7 addresses files + all 5 customers files from provided input.
+          460 +               Run 6 times: effective dates 20241002, 20241003, 20241004, 20241005,                                       
+          461 +               20241006, 20241007.                                                                                        
+          462    Expected:    Exact match of all 6 provided output files.
+          463    Validation:  Byte-for-byte comparison of each output file.
+          464    Covers:      All BR rules
+    
+    ● All three deliverables are updated. Let me verify the build is still clean and run a quick sanity check on edge cases.
+    
+    ● Bash(cd /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/ClaudeAddressChanges && dotnet build 2>&1 | tail -5)
+      ⎿  Build succeeded.
+             0 Warning(s)
+             0 Error(s)                    
+         … +2 lines (ctrl+o to expand)
+                                                                                                                                                
+    ● Bash(echo "=== Missing previous-day file ===" && dotnet run -- /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/DataLake /tmp/etl_output
+          20241001 2>&1; echo "Exit: $?" &…)                                                                                                    
+      ⎿  === Missing previous-day file ===                                                                                                      
+         [14:36:03.799] Starting Address Changes ETL                       
+         [14:36:03.825] Effective date:   20241001                                                                                              
+         … +31 lines (ctrl+o to expand)                                                                                                       
+                                                                                                                                                
+    ● Everything works correctly. Here's a summary of all changes:                                                                              
+                                                                                                                                                
+      ---                                                                                                                                       
+      Changes Made                                                                                                                              
+                                                                                                                                                
+      Code (3 files)                                                                                                                            
+    
+      File: Program.cs
+      Change: Now accepts 3 args: <input-dir> <output-dir> <effective-date>. Validates the date format (YYYYMMDD) before invoking the pipeline. 
+      ────────────────────────────────────────
+      File: Engine/Pipeline.cs                                                                                                                  
+      Change: Removed the date discovery loop. Computes previousDate = effectiveDate - 1 day, loads exactly two address files, resolves one     
+        customer file, runs one comparison, writes one output file.                                                                             
+      ────────────────────────────────────────
+      File: Validation/InputValidator.cs
+      Change: Replaced ValidateMinimumDates with ValidateRequiredFiles — pre-flight check that both the effective-date and previous-day address
+        files exist.
+    
+      No changes to: Models, IO layer, or ChangeDetector — the transformation logic is identical.
+    
+      Spec (AddressChangesETL_FunctionalSpec.txt)
+    
+      - Section 1.2: Single effective date per invocation; caller iterates for ranges
+      - Section 1.3: Replaced "Baseline" with "Effective date" in glossary
+      - Section 5: Complete rewrite — no loop, just: receive date → compute previous → validate → load → compare → write
+      - Section 6.1: Simplified to "halt if either file is missing"
+      - Section 7.2/7.4: Updated for single-invocation model
+      - Section 8: Updated BR-1/BR-2 traceability
+    
+      Test Cases (AddressChangesTestCases.txt)
+    
+      - TC-01/TC-02: Changed from "baseline produces no output" to "missing file produces error"
+      - TC-03/TC-04/TC-05: Reworded to specify the effective date parameter
+      - TC-20/TC-21: Updated for single-invocation model (TC-21 now calls the ETL 3 separate times)
+      - TC-44: Updated to reference effective date
+      - TC-46: Reworded as 6 separate invocations, one per effective date
+    
+      Execution
+    
+      # Single date
+      dotnet run -- <input-dir> <output-dir> 20241005
+    
+      # Process a range (caller iterates)
+      for d in 20241002 20241003 20241004 20241005 20241006 20241007; do
+        dotnet run -- <input-dir> <output-dir> $d
+      done
+    
+    ✻ Crunched for 5m 59s
 
 
 ************************************************************************************************************************
 
-
+I then ran it with the passed in effective date of 2024-10-02 (after saving off the original Oct 2 output under a 
+different name. Results were identical 
 
 ************************************************************************************************************************
 

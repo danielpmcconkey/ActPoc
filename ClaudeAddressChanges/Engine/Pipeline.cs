@@ -7,10 +7,12 @@ using ClaudeAddressChanges.Validation;
 namespace ClaudeAddressChanges.Engine;
 
 /// <summary>
-/// ETL pipeline orchestrator.
+/// ETL pipeline orchestrator for single-date processing.
+///
 /// Implements Section 5 (Functional Processing Flow):
-///   5.1: Initialization — file discovery, date sorting, baseline designation
-///   5.2: Daily processing loop — load, compare, enrich, write
+///   The caller supplies an effective date. The pipeline compares the effective
+///   date's address snapshot against the previous calendar day's snapshot
+///   (effective_date - 1) and produces a single change log file.
 ///
 /// Memory profile for maximum scale (10M addresses, 5M customers):
 ///   ~4GB per address dictionary × 2 dictionaries at peak = ~8GB
@@ -21,158 +23,133 @@ public sealed class Pipeline
 {
     private readonly string _inputDir;
     private readonly string _outputDir;
+    private readonly DateOnly _effectiveDate;
 
-    public Pipeline(string inputDir, string outputDir)
+    public Pipeline(string inputDir, string outputDir, DateOnly effectiveDate)
     {
         _inputDir = inputDir;
         _outputDir = outputDir;
+        _effectiveDate = effectiveDate;
     }
 
     /// <summary>
-    /// Executes the full ETL pipeline.
+    /// Executes the ETL pipeline for the configured effective date.
+    ///
+    /// Processing flow:
+    ///   1. Compute previous date = effective_date - 1 calendar day
+    ///   2. Validate that required input files exist (pre-flight)
+    ///   3. Load previous-day address snapshot
+    ///   4. Load effective-date address snapshot
+    ///   5. Resolve and load customer file (<= effective date)
+    ///   6. Detect changes (NEW, UPDATED, DELETED)
+    ///   7. Write output file
+    ///
     /// Section 7.1: Running multiple times with same input produces identical output (idempotent).
-    /// Section 7.4: Dates are processed in strict chronological order.
     /// </summary>
     public void Run()
     {
         var totalTimer = Stopwatch.StartNew();
 
+        // Compute the comparison date: previous calendar day
+        var previousDate = _effectiveDate.AddDays(-1);
+
         Log("Starting Address Changes ETL");
+        Log($"Effective date:   {_effectiveDate:yyyyMMdd}");
+        Log($"Previous date:    {previousDate:yyyyMMdd}");
         Log($"Input directory:  {_inputDir}");
         Log($"Output directory: {_outputDir}");
 
-        // --- Section 5.1: Initialization ---
+        // --- Pre-flight validation ---
+        // Verify both address files exist before loading anything.
+        InputValidator.ValidateRequiredFiles(_inputDir, _effectiveDate, previousDate);
 
-        // Step 1-2: Discover and sort address input dates
-        var addressDates = DiscoverDates("addresses");
-        Log($"Discovered {addressDates.Count} address snapshot(s): " +
-            $"{addressDates.First():yyyyMMdd} to {addressDates.Last():yyyyMMdd}");
+        // --- Load previous-day address snapshot ---
+        var prevPath = BuildAddressPath(previousDate);
+        var prevTimer = Stopwatch.StartNew();
+        var previousAddresses = AddressFileReader.ReadFile(prevPath);
+        prevTimer.Stop();
+        Log($"Loaded previous-day addresses ({previousDate:yyyyMMdd}): {previousAddresses.Count:N0} records ({prevTimer.ElapsedMilliseconds}ms)");
 
-        // Step 4: Discover customer input dates
-        var customerDates = DiscoverDates("customers");
-        Log($"Discovered {customerDates.Count} customer snapshot(s)");
+        // --- Load effective-date address snapshot ---
+        var currPath = BuildAddressPath(_effectiveDate);
+        var currTimer = Stopwatch.StartNew();
+        var currentAddresses = AddressFileReader.ReadFile(currPath);
+        currTimer.Stop();
+        Log($"Loaded effective-date addresses ({_effectiveDate:yyyyMMdd}): {currentAddresses.Count:N0} records ({currTimer.ElapsedMilliseconds}ms)");
 
-        // Step 5: Validate at least two address dates exist (BR-1 requires a baseline + at least one processing day)
-        InputValidator.ValidateMinimumDates(addressDates);
+        // --- Resolve and load customer file ---
+        // Section 2.3, Decision D-2 (Option B): most recent customer file <= effective date
+        // Implements BR-13: Customer file does not need to match the effective date exactly.
+        var customerDates = DiscoverCustomerDates();
+        var resolvedCustomerDate = ResolveCustomerDate(customerDates, _effectiveDate);
 
-        // Step 3: Designate first date as baseline
-        var baseline = addressDates[0];
-        Log($"Baseline date: {baseline:yyyyMMdd} (no output produced — BR-1)");
-
-        // --- Section 5.2: Daily Processing Loop ---
-
-        Dictionary<int, AddressRecord>? previousAddresses = null;
-        DateOnly? lastResolvedCustomerDate = null;
-        Dictionary<int, string>? customerNames = null;
-
-        for (int i = 0; i < addressDates.Count; i++)
+        if (resolvedCustomerDate is null)
         {
-            var currentDate = addressDates[i];
-            var addressPath = GetFilePath("addresses", currentDate);
-
-            if (i == 0)
-            {
-                // Implements BR-1: Baseline — load only, no output produced
-                var stepTimer = Stopwatch.StartNew();
-                previousAddresses = AddressFileReader.ReadFile(addressPath);
-                stepTimer.Stop();
-                Log($"Loaded baseline {currentDate:yyyyMMdd}: {previousAddresses.Count:N0} addresses ({stepTimer.ElapsedMilliseconds}ms)");
-                continue;
-            }
-
-            Log($"--- Processing {currentDate:yyyyMMdd} ---");
-            var dayTimer = Stopwatch.StartNew();
-
-            // Step 7: Load current-day address snapshot
-            var loadTimer = Stopwatch.StartNew();
-            var currentAddresses = AddressFileReader.ReadFile(addressPath);
-            loadTimer.Stop();
-            Log($"  Loaded {currentAddresses.Count:N0} current-day addresses ({loadTimer.ElapsedMilliseconds}ms)");
-
-            // Step 8: Resolve customer file per Section 2.3, Decision D-2 (Option B)
-            var resolvedCustomerDate = ResolveCustomerDate(customerDates, currentDate);
-            if (resolvedCustomerDate is null)
-            {
-                // Section 6.2: Halt if no customer file can be resolved
-                throw new InvalidOperationException(
-                    $"No customer file available for processing date {currentDate:yyyyMMdd}. " +
-                    $"Searched for customers_YYYYMMDD.csv with date <= {currentDate:yyyyMMdd} (Section 6.2)");
-            }
-
-            // Step 9: Load customer names (cached if same file as previous iteration)
-            if (resolvedCustomerDate != lastResolvedCustomerDate)
-            {
-                var custPath = GetFilePath("customers", resolvedCustomerDate.Value);
-                var custTimer = Stopwatch.StartNew();
-                customerNames = CustomerFileReader.ReadFile(custPath);
-                custTimer.Stop();
-                lastResolvedCustomerDate = resolvedCustomerDate;
-                Log($"  Loaded customer file {resolvedCustomerDate.Value:yyyyMMdd}: {customerNames.Count:N0} customers ({custTimer.ElapsedMilliseconds}ms)");
-            }
-            else
-            {
-                Log($"  Reusing cached customer file {resolvedCustomerDate.Value:yyyyMMdd}");
-            }
-
-            // Steps 12-15: Change detection
-            var detectTimer = Stopwatch.StartNew();
-            var changes = ChangeDetector.DetectChanges(previousAddresses!, currentAddresses, customerNames!);
-            detectTimer.Stop();
-
-            int newCount = 0, updatedCount = 0, deletedCount = 0;
-            foreach (var c in changes)
-            {
-                switch (c.ChangeType)
-                {
-                    case ChangeType.NEW: newCount++; break;
-                    case ChangeType.UPDATED: updatedCount++; break;
-                    case ChangeType.DELETED: deletedCount++; break;
-                }
-            }
-            Log($"  Changes detected: {changes.Count:N0} (NEW={newCount:N0}, UPDATED={updatedCount:N0}, DELETED={deletedCount:N0}) ({detectTimer.ElapsedMilliseconds}ms)");
-
-            // Step 16: Write output file
-            // Implements BR-8: File is always produced, even with zero changes
-            var outputPath = Path.Combine(_outputDir, $"address_changes_{currentDate:yyyyMMdd}.csv");
-            var writeTimer = Stopwatch.StartNew();
-            ChangeLogWriter.Write(outputPath, changes);
-            writeTimer.Stop();
-            Log($"  Output written: {outputPath} ({writeTimer.ElapsedMilliseconds}ms)");
-
-            // Step 17: Current becomes previous for next iteration
-            // The previous-day dictionary is released for GC once reassigned.
-            previousAddresses = currentAddresses;
-
-            dayTimer.Stop();
-            Log($"  Day complete ({dayTimer.ElapsedMilliseconds}ms)");
+            // Section 6.2: Halt if no customer file can be resolved
+            throw new InvalidOperationException(
+                $"No customer file available for effective date {_effectiveDate:yyyyMMdd}. " +
+                $"Searched for customers_YYYYMMDD.csv with date <= {_effectiveDate:yyyyMMdd} (Section 6.2)");
         }
+
+        var custPath = Path.Combine(_inputDir, $"customers_{resolvedCustomerDate.Value:yyyyMMdd}.csv");
+        if (!File.Exists(custPath))
+        {
+            throw new InvalidOperationException($"Resolved customer file does not exist: {custPath}");
+        }
+
+        var custTimer = Stopwatch.StartNew();
+        var customerNames = CustomerFileReader.ReadFile(custPath);
+        custTimer.Stop();
+        Log($"Loaded customer file {resolvedCustomerDate.Value:yyyyMMdd}: {customerNames.Count:N0} customers ({custTimer.ElapsedMilliseconds}ms)");
+
+        // --- Change detection ---
+        // Section 4.1: Compare current-day vs previous-day by address_id
+        var detectTimer = Stopwatch.StartNew();
+        var changes = ChangeDetector.DetectChanges(previousAddresses, currentAddresses, customerNames);
+        detectTimer.Stop();
+
+        int newCount = 0, updatedCount = 0, deletedCount = 0;
+        foreach (var c in changes)
+        {
+            switch (c.ChangeType)
+            {
+                case ChangeType.NEW: newCount++; break;
+                case ChangeType.UPDATED: updatedCount++; break;
+                case ChangeType.DELETED: deletedCount++; break;
+            }
+        }
+        Log($"Changes detected: {changes.Count:N0} (NEW={newCount:N0}, UPDATED={updatedCount:N0}, DELETED={deletedCount:N0}) ({detectTimer.ElapsedMilliseconds}ms)");
+
+        // --- Write output file ---
+        // Implements BR-8: File is always produced, even with zero changes.
+        var outputPath = Path.Combine(_outputDir, $"address_changes_{_effectiveDate:yyyyMMdd}.csv");
+        var writeTimer = Stopwatch.StartNew();
+        ChangeLogWriter.Write(outputPath, changes);
+        writeTimer.Stop();
+        Log($"Output written: {outputPath} ({writeTimer.ElapsedMilliseconds}ms)");
 
         totalTimer.Stop();
         Log($"ETL processing complete. Total elapsed: {totalTimer.Elapsed.TotalSeconds:F1}s");
     }
 
     /// <summary>
-    /// Discovers all files matching the pattern {prefix}_YYYYMMDD.csv in the input directory,
-    /// extracts dates, and returns them sorted ascending.
-    /// Implements Section 5.1, Steps 1-2.
+    /// Discovers all customer file dates in the input directory.
+    /// Used for customer file resolution (Section 2.3).
     /// </summary>
-    private List<DateOnly> DiscoverDates(string prefix)
+    private List<DateOnly> DiscoverCustomerDates()
     {
-        var pattern = $"{prefix}_*.csv";
+        var pattern = "customers_*.csv";
         var files = Directory.GetFiles(_inputDir, pattern);
         var dates = new List<DateOnly>();
-
-        int prefixLen = prefix.Length + 1; // "prefix_"
+        const int prefixLen = 10; // "customers_"
 
         foreach (var file in files)
         {
             var name = Path.GetFileNameWithoutExtension(file);
-
             if (name.Length < prefixLen + 8)
-                continue; // filename too short to contain a date
+                continue;
 
             var datePart = name[prefixLen..];
-
             if (DateOnly.TryParseExact(datePart, "yyyyMMdd", CultureInfo.InvariantCulture,
                     DateTimeStyles.None, out var date))
             {
@@ -185,48 +162,32 @@ public sealed class Pipeline
     }
 
     /// <summary>
-    /// Resolves the customer file to use for a given processing date.
+    /// Resolves the customer file to use for the effective date.
     /// Implements Section 2.3, Decision D-2 (Option B):
-    ///   Use the most recent customer file whose date is &lt;= the current processing date.
+    ///   Use the most recent customer file whose date is &lt;= the effective date.
     ///
     /// Uses binary search for O(log N) lookup on sorted customer dates.
-    /// Implements BR-13: Customer file does not need to match the processing date exactly.
     /// </summary>
-    private static DateOnly? ResolveCustomerDate(List<DateOnly> sortedDates, DateOnly currentDate)
+    private static DateOnly? ResolveCustomerDate(List<DateOnly> sortedDates, DateOnly effectiveDate)
     {
         if (sortedDates.Count == 0)
             return null;
 
-        int index = sortedDates.BinarySearch(currentDate);
+        int index = sortedDates.BinarySearch(effectiveDate);
 
         if (index >= 0)
             return sortedDates[index]; // exact match
 
-        // BinarySearch returns ~insertionPoint when not found
         int insertionPoint = ~index;
-
         if (insertionPoint == 0)
-            return null; // all customer dates are after the current date
+            return null; // all customer dates are after the effective date
 
-        return sortedDates[insertionPoint - 1]; // most recent date before current
+        return sortedDates[insertionPoint - 1];
     }
 
-    /// <summary>
-    /// Builds the full file path for a given prefix and date.
-    /// E.g., prefix="addresses", date=2024-10-02 -> "{inputDir}/addresses_20241002.csv"
-    /// </summary>
-    private string GetFilePath(string prefix, DateOnly date)
+    private string BuildAddressPath(DateOnly date)
     {
-        var path = Path.Combine(_inputDir, $"{prefix}_{date:yyyyMMdd}.csv");
-
-        // Section 6.1, Decision D-5: Halt on missing address file
-        if (!File.Exists(path))
-        {
-            throw new InvalidOperationException(
-                $"Expected input file does not exist: {path} (Section 6.1)");
-        }
-
-        return path;
+        return Path.Combine(_inputDir, $"addresses_{date:yyyyMMdd}.csv");
     }
 
     private static void Log(string message)

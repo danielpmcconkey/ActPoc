@@ -84,12 +84,13 @@ Observed Transformations
 Inferred Business Rules
 -----------------------
 
-BR-1:  The first available input date serves as the baseline; no change output is produced for it.
-       Evidence: No output file for Oct 1; output starts Oct 2.
+BR-1:  The pipeline processes a single effective date per invocation. The previous day is always
+       the calendar day immediately before the effective date (effective_date - 1).
+       Evidence: Oct 2 output compares against Oct 1; Oct 5 compares against Oct 4; etc.
        Confidence: High
 
-BR-2:  Each day's address snapshot is compared to the immediately preceding day's snapshot to
-       detect changes.
+BR-2:  The effective date's address snapshot is compared to the previous calendar day's snapshot
+       to detect changes.
        Evidence: Changes on Oct 2 are relative to Oct 1; Oct 4 relative to Oct 3; etc.
        Confidence: High
 

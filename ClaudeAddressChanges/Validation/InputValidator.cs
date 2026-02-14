@@ -2,33 +2,36 @@ namespace ClaudeAddressChanges.Validation;
 
 /// <summary>
 /// Pre-flight validation of input data before pipeline execution.
-/// Implements Section 5.1, Step 5 and Section 6 error conditions.
+/// Fails fast before any data loading to avoid wasted I/O on large files.
 /// </summary>
 public static class InputValidator
 {
     /// <summary>
-    /// Validates that at least two address dates exist.
-    /// Section 5.1, Step 5: The pipeline requires a baseline (first date) plus at least
-    /// one processing date to produce output. With only one date, there is nothing to
-    /// compare against, so processing completes with no output.
+    /// Validates that the required address snapshot files exist for the effective date
+    /// and its previous calendar day.
     ///
-    /// Implements BR-1: The first date is the baseline; output starts from the second date.
+    /// The ETL requires two address files:
+    ///   - addresses_YYYYMMDD.csv for the effective date (current-day snapshot)
+    ///   - addresses_YYYYMMDD.csv for effective date - 1 (previous-day snapshot)
+    ///
+    /// Section 6.1, Decision D-5: Halt if a required address file is missing.
     /// </summary>
-    public static void ValidateMinimumDates(List<DateOnly> addressDates)
+    public static void ValidateRequiredFiles(string inputDir, DateOnly effectiveDate, DateOnly previousDate)
     {
-        if (addressDates.Count == 0)
+        var previousPath = Path.Combine(inputDir, $"addresses_{previousDate:yyyyMMdd}.csv");
+        if (!File.Exists(previousPath))
         {
             throw new InvalidOperationException(
-                "No address snapshot files found in the input directory. " +
-                "Expected files matching pattern: addresses_YYYYMMDD.csv");
+                $"Previous-day address file not found: {previousPath}. " +
+                $"The effective date {effectiveDate:yyyyMMdd} requires the prior day's " +
+                $"snapshot ({previousDate:yyyyMMdd}) for comparison.");
         }
 
-        if (addressDates.Count < 2)
+        var currentPath = Path.Combine(inputDir, $"addresses_{effectiveDate:yyyyMMdd}.csv");
+        if (!File.Exists(currentPath))
         {
             throw new InvalidOperationException(
-                $"Only one address snapshot found ({addressDates[0]:yyyyMMdd}). " +
-                "At least two snapshots are required: one baseline and one processing date. " +
-                "(Section 5.1, Step 5)");
+                $"Effective-date address file not found: {currentPath}.");
         }
     }
 }
