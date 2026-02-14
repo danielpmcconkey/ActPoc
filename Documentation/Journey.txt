@@ -2931,8 +2931,14 @@ RESPONSE
 
 ************************************************************************************************************************
 
+Holy, shit, it worked. It ran and it appears to match my code's output
 PROMPT
-
+    
+    This all looks functionally correct. thank you. However, you have it running on all logical days at the same time.
+    I would like it to run on a specific logical date. Please change the specification, tests, and code such that the 
+    user can pass in a single "effective" date and it only processes that date for each run. Note, as this is a 
+    comparison and change data capture, if the "effective date" passed is in May 5, it should compare it to the state 
+    of the May 4 data  
 
 RESPONSE
 

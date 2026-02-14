@@ -1,0 +1,5 @@
+change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+UPDATED,2001,1001,"Ethan Carter","1452 Oak Street","Columbus","OH","43215",US,2019-01-01,2024-10-02
+NEW,2002,1001,"Ethan Carter","250 Rideau Street","Ottawa","ON","K1N 5Y1",CA,2024-10-02,
+
+Expected records: 2

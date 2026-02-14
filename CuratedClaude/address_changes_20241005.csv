@@ -1,0 +1,4 @@
+change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+NEW,2004,1015,"Elijah Das","77 Whyte Ave","Seattle","WA","98101",US,2024-10-05,
+
+Expected records: 1
