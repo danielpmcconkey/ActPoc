@@ -30,7 +30,10 @@ class Program
              *              end_date YYYY-MM-DD
              *          A record is considered new if its address_id is not present in the prior date's address table
              *          A record is considered removed if its address_id is present in the prior date's address table but not in the current date's address table
-             *          A record is considered updated if the address_id is in both current and prior address tables, but any of the output fields is different 
+             *          A record is considered updated if the address_id is in both current and prior address tables, but any of the output fields is different
+             *      Append an empty line at the end of the file
+             *      After the empty line, add a line that reads "Expected records:" and is followed by the number of records in the file
+             *      If no records for that day, print the header, the empty line, and expected records line (which should say 0)
              */
             var logicalDate = Arguments.ParseLogicalDate(args);
             var priorLogicalDate = logicalDate.AddDays(-1);
@@ -53,7 +56,7 @@ class Program
              * note, code below was originally written by Claude using teh following prompt:
              * 
              *      given the business requirements listed in the beginning of the Main method, and given the 4 lists
-             *      between lines 47 and 50, add code after line 50 that accomplishes the business requirement
+             *      between lines 50 and 53, add code after line 53 that accomplishes the business requirement
              *
              * But it used foreach loops and I wanted it to be set based. So I added another prompt:
              *
@@ -192,6 +195,9 @@ class Program
             var endDateStr = change.end_date?.ToString("yyyy-MM-dd") ?? "";
             writer.WriteLine($"{change.change_type},{change.address_id},{change.customer_id},\"{change.customer_name}\",\"{change.address_line1}\",\"{change.city}\",\"{change.state_province}\",\"{change.postal_code}\",{change.country},{change.start_date:yyyy-MM-dd},{endDateStr}");
         }
+        
+        writer.WriteLine(); // empty line
+        writer.WriteLine($"Expected records: {changes.Count}");
     }
 
     

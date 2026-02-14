@@ -1230,6 +1230,14 @@ order by transaction_id;
 
 ************************************************************************************************************************
 
+Hybrid session
+Feb 14
+
+I wanted to create actual ETL code to write the output that I would later feed into my ATC agents. I created the code in
+https://github.com/danielpmcconkey/ActPoc/tree/main/HumanGeneratedAddressChanges and also the code in
+https://github.com/danielpmcconkey/ActPoc/tree/main/SharedFunctions .
+
+There was a good bit of Claude authoring
 
 ************************************************************************************************************************
 
