@@ -1,0 +1,4 @@
+change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+UPDATED,2003,1015,"Elijah Das","44 Jasper Ave","Edmonton","AB","T5J 3R7",CA,2018-02-01,2024-10-04
+
+Expected records: 1

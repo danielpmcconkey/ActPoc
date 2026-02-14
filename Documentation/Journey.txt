@@ -1239,25 +1239,1261 @@ https://github.com/danielpmcconkey/ActPoc/tree/main/SharedFunctions .
 
 There was a good bit of Claude authoring
 
-************************************************************************************************************************
+I then ran this hybrid-written ETL code over the logical dates of 2024-10-02 through 2024-10-07
 
-
-************************************************************************************************************************
-
+I manually spot checked the output and it looks right to me 
 
 ************************************************************************************************************************
 
+AI session with Claude
+Feb 14
+
+I first tried to use the Claude prompt within my IDE, but it wouldn't let me attach so many files. It also kept grabbing
+files from my hybrid solution without me wanting it to. So I went to Claude.ai and tried this prompt, attaching all of 
+my address, customer, and customer_address files
+
+PROMPT:
+
+    You are an ETL reverse-engineering analyst. Your job is to infer the business requirements of a lost ETL pipeline using only the provided input datasets (attached files that start with addresses_* or customers_* and the resulting output datasets (attached files that start with address_changes_*.
+    Mission
+    Analyze the input and output data and reconstruct the business intent behind the transformation. You are NOT writing code or implementation details. You are discovering:
+        • transformation rules
+        • business logic
+        • validation behavior
+        • data mapping intent
+        • aggregation or filtering logic
+        • assumptions implied by outputs
+    Constraints
+        • Only infer requirements supported by observable evidence in the data
+        • Do not invent business context
+        • Clearly mark uncertainty levels
+        • If multiple interpretations are possible, list alternatives
+        • No implementation details
+        • No technology assumptions
+    Analysis Tasks
+        1. Schema comparison (input vs output)
+        2. Field lineage mapping
+        3. Transformation pattern detection
+        4. Filtering/aggregation detection
+        5. Derived field logic inference
+        6. Edge case behavior inference
+        7. Data quality rules inference
+    Required Output Structure
+    Executive Summary
+    High-level description of what the ETL appears to accomplish.
+    Observed Transformations
+    For each transformation:
+        • Input fields involved
+        • Output field
+        • Observed pattern
+        • Likely rule
+        • Confidence level (High / Medium / Low)
+        • Supporting evidence
+    Inferred Business Rules
+    Numbered list of business requirements with:
+        • Rule description
+        • Evidence reference
+        • Confidence rating
+    Data Validation & Constraints
+    Observed implied rules (formatting, filtering, deduplication, etc.).
+    Ambiguities & Hypotheses
+    List uncertain interpretations and alternative explanations.
+    Traceability Matrix
+    Table linking:
+    Input Field → Output Field → Inferred Rule → Evidence
+    Deliverable Goal
+    Produce a clear, structured specification of inferred business requirements that another agent can use to generate test cases.
+
+It ran for a very long time. I killed it after 15 minutes.
+
+************************************************************************************************************************
+
+Claude Code session
+Feb 14
+
+I installed ClaudeCode on my linux box, hoping for better output
+
+PROMPT
+    parse the files at /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/DataLake that start with addresses_* or customers_*.
+    These are while I will reference later as "provided input"
+
+RESPONSE
+    Searched for 2 patterns (ctrl+o to expand)                                                                                                
+                                                                                                                                            
+● Found 7 address files and 5 customer files. Let me read them all.                                                                         
+                                                                                                                                            
+● Read 12 files (ctrl+o to expand)                                                                                                          
+                                                                                                                                            
+● I've parsed all 12 files. Here's a summary of the provided input:
+                                                                                                                                            
+  ---                                                                                                                                       
+  Customers Files (5 files: Oct 1-4, 7)                                                                                                     
+                                                                                                                                            
+  Schema: id, prefix, first_name, last_name, sort_name, suffix, birthdate                                                                   
+                                                                                                                                            
+  23 customers (IDs 1001-1023). No changes across any of the 5 files — customer data remains identical throughout the week. Includes names
+  with special characters (accents, hyphens, apostrophes, multi-part surnames).
+
+  Addresses Files (7 files: Oct 1-7)
+
+  Schema: address_id, customer_id, address_line1, city, state_province, postal_code, country, start_date, end_date
+
+  Starts with 23 address records. The key changes day-over-day:
+
+  Date: Oct 1
+  Change: Baseline — 23 addresses, all with end_date = NULL (active)
+  ────────────────────────────────────────
+  Date: Oct 2
+  Change: Customer 1001 (Ethan Carter) moved: address 2001 (Columbus, OH) gets end_date = 2024-10-02; new address 2002 (250 Rideau Street,
+    Ottawa, ON, CA) added
+  ────────────────────────────────────────
+  Date: Oct 3
+  Change: No changes
+  ────────────────────────────────────────
+  Date: Oct 4
+  Change: Customer 1015 (Elijah Das): address 2003 (Edmonton, AB) gets end_date = 2024-10-04
+  ────────────────────────────────────────
+  Date: Oct 5
+  Change: Customer 1015: new address 2004 (77 Whyte Ave, Seattle, WA, US) added with start_date = 2024-10-05
+  ────────────────────────────────────────
+  Date: Oct 6
+  Change: No changes
+  ────────────────────────────────────────
+  Date: Oct 7
+  Change: No changes
+
+  Summary of address changes across the week:
+  - 2 customers moved (1001 and 1015)
+  - 2 addresses closed (2001, 2003) via end_date being set
+  - 2 new addresses created (2002, 2004)
+  - Customer 1001: US → Canada; Customer 1015: Canada → US
+
+  I have this data loaded and ready to reference as "provided input." What would you like to do with it?
+
+✻ Baked for 34s                   
 
 ************************************************************************************************************************
 
 
-************************************************************************************************************************
+
+PROMPT
+    parse the files at /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Curated that start with addresses_changes_*. These are what I will reference later as "provided output"
+
+RESPONSE
+    Searched for 2 patterns (ctrl+o to expand)                                                                                                
+                                                                                                                                            
+● Found them — address_changes_* (singular "address"). Let me read all 6 files.                                                             
+                                                                                                                                            
+● Read 6 files (ctrl+o to expand)    
+                                                                                                                                            
+● Parsed all 6 files. Here's a summary of the provided output:
+                                                                                                                                            
+  ---                                                                                                                                     
+  Address Changes Files (6 files: Oct 2-7)                                                                                                  
+                                                                                                                                            
+  Schema: change_type, address_id, customer_id, customer_name, address_line1, city, state_province, postal_code, country, start_date,       
+  end_date                                                                                                                                  
+
+  Note: No file for Oct 1 (it's the baseline — nothing to compare against).
+
+  File Date: Oct 2
+  Records: 2
+  Details: UPDATED 2001 (Ethan Carter, Columbus OH — end_date set to 2024-10-02); NEW 2002 (Ethan Carter, Ottawa ON — start_date 2024-10-02)
+  ────────────────────────────────────────
+  File Date: Oct 3
+  Records: 0
+  Details: Header only, no changes
+  ────────────────────────────────────────
+  File Date: Oct 4
+  Records: 1
+  Details: UPDATED 2003 (Elijah Das, Edmonton AB — end_date set to 2024-10-04)
+  ────────────────────────────────────────
+  File Date: Oct 5
+  Records: 1
+  Details: NEW 2004 (Elijah Das, 77 Whyte Ave, Seattle WA — start_date 2024-10-05)
+  ────────────────────────────────────────
+  File Date: Oct 6
+  Records: 0
+  Details: Header only, no changes
+  ────────────────────────────────────────
+  File Date: Oct 7
+  Records: 0
+  Details: Header only, no changes
+
+  Key observations about the output format:
+  - Each file has a footer line: Expected records: N
+  - change_type is either NEW (new address added) or UPDATED (existing address modified — specifically end_date being set)
+  - customer_name is a derived/joined field (first_name + last_name from the customers data)
+  - end_date is empty (not NULL) for active addresses
+  - Files are produced for every day after the baseline, even if there are no changes
+
+  I have this data loaded and ready to reference as "provided output." What would you like to do next?
 
 
 ************************************************************************************************************************
 
 
+PROMPT
+
+    You are an ETL reverse-engineering analyst. Your job is to infer the business requirements of a lost ETL pipeline using only the provided input datasets and the resulting provided output datasets
+    Mission
+    Analyze the input and output data and reconstruct the business intent behind the transformation. You are NOT writing code or implementation details. You are discovering:
+        • transformation rules
+        • business logic
+        • validation behavior
+        • data mapping intent
+        • aggregation or filtering logic
+        • assumptions implied by outputs
+    Constraints
+        • Only infer requirements supported by observable evidence in the data
+        • Do not invent business context
+        • Clearly mark uncertainty levels
+        • If multiple interpretations are possible, list alternatives
+        • No implementation details
+        • No technology assumptions
+    Analysis Tasks
+        1. Schema comparison (input vs output)
+        2. Field lineage mapping
+        3. Transformation pattern detection
+        4. Filtering/aggregation detection
+        5. Derived field logic inference
+        6. Edge case behavior inference
+        7. Data quality rules inference
+    Required Output Structure
+    Executive Summary
+    High-level description of what the ETL appears to accomplish.
+    Observed Transformations
+    For each transformation:
+        • Input fields involved
+        • Output field
+        • Observed pattern
+        • Likely rule
+        • Confidence level (High / Medium / Low)
+        • Supporting evidence
+    Inferred Business Rules
+    Numbered list of business requirements with:
+        • Rule description
+        • Evidence reference
+        • Confidence rating
+    Data Validation & Constraints
+    Observed implied rules (formatting, filtering, deduplication, etc.).
+    Ambiguities & Hypotheses
+    List uncertain interpretations and alternative explanations.
+    Traceability Matrix
+    Table linking:
+    Input Field → Output Field → Inferred Rule → Evidence
+    Deliverable Goal
+    Produce a clear, structured specification of inferred business requirements that another agent can use to generate test cases.
+
+RESPONSE
+                                                  
+    ● ---                                                                                                                                       
+      ETL Reverse-Engineering Analysis                                                                                                          
+                                                                                                                                                
+      Executive Summary                                                                                                                         
+                                                                                                                                                
+      The ETL pipeline performs a daily change-detection (delta/diff) process on customer address data. It compares each day's address snapshot 
+      against the previous day's snapshot, identifies new and modified address records, enriches them with the customer's name (joined from a   
+      separate customer dataset), and outputs a change log file per day. Days with no changes still produce an output file containing only the
+      header and a zero record count. A footer validation line (Expected records: N) is appended to each output file as a record-count integrity
+       check.
+    
+      ---
+      Observed Transformations
+    
+      1. Change Detection (Row-Level Diff)
+    
+      Attribute: Input fields
+      Detail: All fields from addresses_YYYYMMDD.csv (current day vs. previous day)
+      ────────────────────────────────────────
+      Attribute: Output field
+      Detail: change_type
+      ────────────────────────────────────────
+      Attribute: Observed pattern
+      Detail: NEW when an address_id exists in the current snapshot but not the previous; UPDATED when an address_id exists in both but at least
+    
+        one field value differs
+      ────────────────────────────────────────
+      Attribute: Likely rule
+      Detail: Compare current-day addresses against previous-day addresses by address_id; classify as NEW or UPDATED accordingly
+      ────────────────────────────────────────
+      Attribute: Confidence
+      Detail: High
+      ────────────────────────────────────────
+      Attribute: Evidence
+      Detail: Oct 2: address 2002 appears for the first time → NEW; address 2001 exists in both Oct 1 and Oct 2 but end_date changed → UPDATED.
+        Oct 4: address 2003 end_date changed → UPDATED. Oct 5: address 2004 appears for the first time → NEW
+    
+      2. Customer Name Enrichment (Join)
+    
+      Attribute: Input fields
+      Detail: customers.first_name, customers.last_name (joined via addresses.customer_id = customers.id)
+      ────────────────────────────────────────
+      Attribute: Output field
+      Detail: customer_name
+      ────────────────────────────────────────
+      Attribute: Observed pattern
+      Detail: Concatenation of first_name + space + last_name
+      ────────────────────────────────────────
+      Attribute: Likely rule
+      Detail: `customer_name = first_name
+      ────────────────────────────────────────
+      Attribute: Confidence
+      Detail: High
+      ────────────────────────────────────────
+      Attribute: Evidence
+      Detail: Customer 1001: first_name="Ethan", last_name="Carter" → "Ethan Carter". Customer 1015: first_name="Elijah", last_name="Das" →
+        "Elijah Das". Fields prefix, suffix, sort_name, and birthdate are all excluded
+    
+      3. NULL-to-Empty Conversion
+    
+      ┌──────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+      │    Attribute     │                                                  Detail                                                  │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Input fields     │ end_date                                                                                                 │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Output field     │ end_date                                                                                                 │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Observed pattern │ Input NULL becomes an empty/blank value in output                                                        │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Likely rule      │ Replace NULL literals with empty strings                                                                 │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Confidence       │ High                                                                                                     │
+      ├──────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+      │ Evidence         │ Oct 2, address 2002: input end_date = NULL → output end_date is blank. Oct 5, address 2004: same pattern │
+      └──────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    
+      4. Unchanged Records Filtered Out
+    
+      Attribute: Input fields
+      Detail: All address fields
+      ────────────────────────────────────────
+      Attribute: Output field
+      Detail: N/A (row excluded)
+      ────────────────────────────────────────
+      Attribute: Observed pattern
+      Detail: Records with no field changes between days are excluded from output
+      ────────────────────────────────────────
+      Attribute: Likely rule
+      Detail: Only emit records where at least one field value differs or the record is entirely new
+      ────────────────────────────────────────
+      Attribute: Confidence
+      Detail: High
+      ────────────────────────────────────────
+      Attribute: Evidence
+      Detail: Oct 2 output has 2 records out of 24 total addresses. Oct 3 has 0 records (no changes). The 21+ unchanged records are never
+      emitted
+    
+      5. Record Count Footer
+    
+      Attribute: Input fields
+      Detail: N/A (derived)
+      ────────────────────────────────────────
+      Attribute: Output field
+      Detail: Footer line: Expected records: N
+      ────────────────────────────────────────
+      Attribute: Observed pattern
+      Detail: N equals the exact count of data rows (excluding header and footer)
+      ────────────────────────────────────────
+      Attribute: Likely rule
+      Detail: Append a validation/audit line with the data row count
+      ────────────────────────────────────────
+      Attribute: Confidence
+      Detail: High
+      ────────────────────────────────────────
+      Attribute: Evidence
+      Detail: Oct 2: 2 data rows → Expected records: 2. Oct 3: 0 data rows → Expected records: 0. Oct 4: 1 → Expected records: 1. Consistent
+        across all 6 files
+    
+      6. Output File Generation Cadence
+    
+      Attribute: Input fields
+      Detail: Existence of current-day and previous-day address files
+      ────────────────────────────────────────
+      Attribute: Output field
+      Detail: File existence
+      ────────────────────────────────────────
+      Attribute: Observed pattern
+      Detail: One output file per day starting from the second input day. No output for the baseline (first day). Output generated even when
+        there are no changes
+      ────────────────────────────────────────
+      Attribute: Likely rule
+      Detail: Always produce an output file for each day after the baseline, even if empty
+      ────────────────────────────────────────
+      Attribute: Confidence
+      Detail: High
+      ────────────────────────────────────────
+      Attribute: Evidence
+      Detail: No address_changes_20241001.csv exists. Files for Oct 3, 6, and 7 exist but contain 0 data records
+    
+      ---
+      Inferred Business Rules
+    
+      #: BR-1
+      Rule: The first available input date serves as the baseline; no change output is produced for it
+      Evidence: No output file for Oct 1; output starts Oct 2
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-2
+      Rule: Each day's address snapshot is compared to the immediately preceding day's snapshot to detect changes
+      Evidence: Changes on Oct 2 are relative to Oct 1; Oct 4 relative to Oct 3; etc.
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-3
+      Rule: A record with an address_id not present in the prior day is classified as NEW
+      Evidence: Addresses 2002 (Oct 2) and 2004 (Oct 5)
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-4
+      Rule: A record with an address_id present in both days but with any field value difference is classified as UPDATED
+      Evidence: Addresses 2001 (Oct 2, end_date changed) and 2003 (Oct 4, end_date changed)
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-5
+      Rule: The output record reflects the current day's field values (post-change state), not the prior day's
+      Evidence: UPDATED address 2001 shows end_date=2024-10-02 (the new value, not the old NULL)
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-6
+      Rule: Customer name is derived by joining to customer data on customer_id = id and concatenating first_name + " " + last_name
+      Evidence: Both output names match this pattern; prefix/suffix/sort_name excluded
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-7
+      Rule: Only customer_name is sourced from the customer dataset; all other customer fields (prefix, suffix, sort_name, birthdate) are
+        excluded
+      Evidence: No trace of these fields in any output
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-8
+      Rule: An output file is always generated for each processing day, even if there are zero changes
+      Evidence: Oct 3, 6, and 7 produce files with header + Expected records: 0
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-9
+      Rule: Each output file includes a footer line Expected records: N as a record-count integrity check
+      Evidence: Present in all 6 output files with correct counts
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-10
+      Rule: NULL values in end_date are rendered as empty/blank in output
+      Evidence: Active addresses (NEW) have blank end_date
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-11
+      Rule: Records with no changes between consecutive days are excluded from output
+      Evidence: Consistently only changed/new records appear
+      Confidence: High
+      ────────────────────────────────────────
+      #: BR-12
+      Rule: Output records appear ordered by address_id ascending
+      Evidence: Oct 2: 2001 before 2002; all single-record files are trivially ordered
+      Confidence: Medium
+      ────────────────────────────────────────
+      #: BR-13
+      Rule: The customer data used for the join does not need to have a same-day file; the most recent or applicable customer data is used
+      Evidence: No customer files exist for Oct 5 and Oct 6, yet output is produced for those dates
+      Confidence: Medium
+    
+      ---
+      Data Validation & Constraints
+    
+      Constraint: Output header is always present, even in zero-change files
+      Evidence: All 6 output files include the header row
+      Confidence: High
+      ────────────────────────────────────────
+      Constraint: Expected records count must match actual data row count
+      Evidence: Verified across all 6 files
+      Confidence: High
+      ────────────────────────────────────────
+      Constraint: change_type is a controlled vocabulary: NEW, UPDATED
+      Evidence: Only these two values observed
+      Confidence: High (but see Ambiguities for DELETED)
+      ────────────────────────────────────────
+      Constraint: customer_name is always quoted in output
+      Evidence: Both names appear in double quotes
+      Confidence: High
+      ────────────────────────────────────────
+      Constraint: country field is not quoted in output (despite being quoted in input)
+      Evidence: US and CA appear unquoted in all output records
+      Confidence: High
+      ────────────────────────────────────────
+      Constraint: change_type, dates, and numeric fields are unquoted in output
+      Evidence: Consistent across all records
+      Confidence: High
+      ────────────────────────────────────────
+      Constraint: String fields containing spaces or special characters are quoted in output
+      Evidence: address_line1, city, state_province, postal_code, customer_name
+      Confidence: High
+    
+      ---
+      Ambiguities & Hypotheses
+    
+      ┌─────┬───────────────────────────────────────────────────────────────────────────────┬────────────────────────────┬─────────────────────┐
+      │  #  │                                   Ambiguity                                   │        Alternatives        │       Impact        │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ Does a DELETED change type exist? No address records were removed in the test │ (a) DELETED type exists    │ High — a real       │
+      │ A-1 │  data, so it's unknown whether the ETL would emit a DELETED row if an         │ but was not triggered; (b) │ implementation must │
+      │     │ address_id disappeared from the snapshot                                      │  Deletions are not tracked │  decide             │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ Output ordering — With limited multi-record output (only Oct 2 has >1 row),   │ Most likely address_id     │                     │
+      │ A-2 │ the sort order could be by address_id, by change_type, or by source file      │ ascending, but             │ Low                 │
+      │     │ order                                                                         │ insufficient data to       │                     │
+      │     │                                                                               │ confirm                    │                     │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ Which customer snapshot is used for the join? Customer files are missing for  │                            │                     │
+      │ A-3 │ Oct 5-6, yet customer data is unchanged all week. It's unclear whether the    │ Cannot distinguish with    │ Medium              │
+      │     │ ETL (a) uses the same-date customer file, (b) uses the most recent available, │ static customer data       │                     │
+      │     │  or (c) uses a persistent/cumulative customer source                          │                            │                     │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ What happens when multiple fields change on the same record? Only end_date    │ Likely yes, but            │                     │
+      │ A-4 │ changes were observed for UPDATED records. It's unknown if changes to other   │ unconfirmed                │ Medium              │
+      │     │ fields (e.g., city, postal_code) would also produce UPDATED records           │                            │                     │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ What if a customer_id has no matching customer record? No orphaned address    │ (a) Row is excluded; (b)   │                     │
+      │ A-5 │ records exist in the test data                                                │ customer_name is blank;    │ Medium              │
+      │     │                                                                               │ (c) ETL errors             │                     │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │     │ Quoting rules — Country is unquoted while other strings are quoted. This      │ Hard to determine without  │                     │
+      │ A-6 │ could be (a) intentional for short fixed-length codes, (b) a quirk of the CSV │ more varied data           │ Low                 │
+      │     │  writer, or (c) only fields that could contain commas/spaces are quoted       │                            │                     │
+      ├─────┼───────────────────────────────────────────────────────────────────────────────┼────────────────────────────┼─────────────────────┤
+      │ A-7 │ Are customers_ files required on the same date, or can a stale file be used?* │ See A-3                    │ Medium              │
+      │     │  Since customer data never changes in the test data, this can't be determined │                            │                     │
+      └─────┴───────────────────────────────────────────────────────────────────────────────┴────────────────────────────┴─────────────────────┘
+    
+      ---
+      Traceability Matrix
+    
+      Input Source: addresses (current vs prior)
+      Input Field: (row presence)
+      Output Field: change_type
+      Inferred Rule: NEW if address_id absent in prior day; UPDATED if present but changed
+      Evidence: BR-3, BR-4
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: address_id
+      Output Field: address_id
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: customer_id
+      Output Field: customer_id
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: customers
+      Input Field: first_name, last_name
+      Output Field: customer_name
+      Inferred Rule: first_name + " " + last_name (joined on customer_id = id)
+      Evidence: BR-6
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: address_line1
+      Output Field: address_line1
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: city
+      Output Field: city
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: state_province
+      Output Field: state_province
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: postal_code
+      Output Field: postal_code
+      Inferred Rule: Direct passthrough
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: country
+      Output Field: country
+      Inferred Rule: Direct passthrough (quoting removed)
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: start_date
+      Output Field: start_date
+      Inferred Rule: Direct passthrough (quote removal)
+      Evidence: All output records
+      ────────────────────────────────────────
+      Input Source: addresses
+      Input Field: end_date
+      Output Field: end_date
+      Inferred Rule: Direct passthrough; NULL → empty string
+      Evidence: BR-10
+      ────────────────────────────────────────
+      Input Source: (derived)
+      Input Field: (row count)
+      Output Field: Footer: Expected records: N
+      Inferred Rule: Count of data rows in output
+      Evidence: BR-9
+    
+      ---
+      This specification should provide sufficient detail for another agent to generate comprehensive test cases covering the confirmed rules,
+      edge cases from the ambiguities, and boundary conditions around the change detection logic.
+
 ************************************************************************************************************************
+
+  
+PROMPT
+    please save that last output to a file at 
+    /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesBusinessReq.txt
+
+RESPONSE
+    Read 1 file (ctrl+o to expand)
+    
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesBusinessReq.txt)
+      ⎿  Wrote 230 lines to ../../media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesBusinessReq.txt
+           1 ETL Reverse-Engineering Analysis
+           2 =================================                                 
+           3 
+           4 Executive Summary                                                                                                                  
+           5 -----------------
+           6                                                                                                                                    
+           7 The ETL pipeline performs a daily change-detection (delta/diff) process on customer address data. It compares each day's add     
+             ress snapshot against the previous day's snapshot, identifies new and modified address records, enriches them with the custo
+             mer's name (joined from a separate customer dataset), and outputs a change log file per day. Days with no changes still prod
+             uce an output file containing only the header and a zero record count. A footer validation line (Expected records: N) is app
+             ended to each output file as a record-count integrity check.
+           8
+           9
+          10 Observed Transformations
+         … +220 lines (ctrl+o to expand)
+    
+    ● Saved to /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesBusinessReq.txt.
+                                                                               
+    ✻ Crunched for 37s                  
+
+************************************************************************************************************************
+
+
+PROMPT
+
+    You are a data transformation test architect. Using the provided input and provided output artifacts and inferred 
+    business requirements from the prior prompt, your task is to design comprehensive test cases validating the 
+    transformation logic.
+    Mission
+    Design tests that verify:
+        • correctness
+        • edge conditions
+        • rule compliance
+        • error handling
+        • boundary behavior
+    Constraints
+        • Tests must directly map to inferred business rules
+        • No new logic assumptions
+        • Clearly identify coverage gaps
+        • Include positive and negative cases
+    Analysis Tasks
+        1. Map each business rule to test coverage
+        2. Identify normal cases
+        3. Identify boundary cases
+        4. Identify failure scenarios
+        5. Identify ambiguous logic needing validation
+    Required Output Structure
+    Test Strategy Overview
+    Rule-to-Test Coverage Matrix
+    Business Rule → Test Case IDs
+    Detailed Test Cases
+    For each test:
+        • Test ID
+        • Purpose
+        • Input data scenario
+        • Expected output behavior
+        • Validation criteria
+        • Covered rule(s)
+    Edge & Failure Tests
+    Coverage Gaps & Assumptions
+    Deliverable Goal
+    Produce test documentation that allows validation of the ETL logic independent of implementation.
+
+RESPONSE
+    Let me first re-read the requirements file to make sure I'm working from the current version.
+                                                     
+    ● Read 1 file (ctrl+o to expand)    
+                                                                                                                                                
+    ● Now I'll produce the full test case document.                                                                                             
+                                                                                                                                                
+      ---                                                                                                                                       
+      Address Changes ETL — Test Case Specification                                                                                             
+                                                                                                                                                
+      Test Strategy Overview                                                                                                                    
+                                                                                                                                                
+      Testing is organized into four tiers:
+    
+      1. Normal/Positive cases — Validate that confirmed business rules produce correct output against the existing provided data (regression
+      baseline).
+      2. Boundary cases — Stress the edges of each rule with synthetic scenarios (first day, last day, single record, many changes).
+      3. Negative/Failure cases — Probe behavior when inputs are missing, malformed, or contradictory.
+      4. Ambiguity-exploration cases — Designed to resolve the open questions (A-1 through A-7) by forcing the ETL into scenarios the original
+      data never covered.
+    
+      All test cases are implementation-agnostic. Each defines input data, expected output, and the rule(s) it validates.
+    
+      ---
+      Rule-to-Test Coverage Matrix
+    
+      ┌───────────────────────────────────────────┬────────────────────────────┐
+      │               Business Rule               │       Test Case IDs        │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-1 (Baseline produces no output)        │ TC-01, TC-02               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-2 (Day-over-day comparison)            │ TC-03, TC-04, TC-05        │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-3 (NEW classification)                 │ TC-06, TC-07, TC-08        │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-4 (UPDATED classification)             │ TC-09, TC-10, TC-11, TC-12 │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-5 (Output reflects current-day values) │ TC-13, TC-14               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-6 (Customer name join: first + last)   │ TC-15, TC-16, TC-17, TC-18 │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-7 (No other customer fields in output) │ TC-19                      │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-8 (Output file always generated)       │ TC-20, TC-21               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-9 (Expected records footer)            │ TC-22, TC-23, TC-24        │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-10 (NULL end_date → empty)             │ TC-25, TC-26               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-11 (Unchanged records excluded)        │ TC-27, TC-28               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-12 (Order by address_id ascending)     │ TC-29, TC-30               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ BR-13 (Customer file date tolerance)      │ TC-31, TC-32               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ A-1 (DELETED behavior)                    │ TC-33, TC-34               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ A-3/A-7 (Customer snapshot selection)     │ TC-35, TC-36               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ A-4 (Multi-field change)                  │ TC-37, TC-38               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ A-5 (Orphan customer_id)                  │ TC-39, TC-40               │
+      ├───────────────────────────────────────────┼────────────────────────────┤
+      │ A-6 (Quoting rules)                       │ TC-41, TC-42               │
+      └───────────────────────────────────────────┴────────────────────────────┘
+    
+      ---
+      Detailed Test Cases
+    
+      Tier 1 — Normal / Positive Cases (Regression)
+    
+      ---
+      TC-01: Baseline day produces no output file
+      - Purpose: Confirm the first input date is treated as baseline only.
+      - Input: addresses_20241001.csv (23 records), customers_20241001.csv (23 records). No prior-day file.
+      - Expected output: No address_changes_20241001.csv file is produced.
+      - Validation: Assert file does not exist.
+      - Covered rules: BR-1
+    
+      ---
+      TC-02: Baseline with a single input day
+      - Purpose: Confirm that if only one date of input is provided, no output is generated.
+      - Input: Single addresses file addresses_20250101.csv with 5 records; matching customers file.
+      - Expected output: No output file.
+      - Validation: Assert no address_changes_* files created.
+      - Covered rules: BR-1
+    
+      ---
+      TC-03: Regression — Oct 1 → Oct 2 change detection
+      - Purpose: Validate exact match against known provided output.
+      - Input: addresses_20241001.csv, addresses_20241002.csv, customers_20241002.csv
+      - Expected output: address_changes_20241002.csv containing:
+      change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+      UPDATED,2001,1001,"Ethan Carter","1452 Oak Street","Columbus","OH","43215",US,2019-01-01,2024-10-02
+      NEW,2002,1001,"Ethan Carter","250 Rideau Street","Ottawa","ON","K1N 5Y1",CA,2024-10-02,
+    
+      Expected records: 2
+      - Validation: Byte-for-byte match of output file content.
+      - Covered rules: BR-2, BR-3, BR-4, BR-5, BR-6, BR-9, BR-10, BR-12
+    
+      ---
+      TC-04: Regression — Oct 3 → Oct 4 change detection
+      - Purpose: Validate single UPDATED record output.
+      - Input: addresses_20241003.csv, addresses_20241004.csv, customers_20241004.csv
+      - Expected output: address_changes_20241004.csv containing:
+      change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+      UPDATED,2003,1015,"Elijah Das","44 Jasper Ave","Edmonton","AB","T5J 3R7",CA,2018-02-01,2024-10-04
+    
+      Expected records: 1
+      - Validation: Exact match.
+      - Covered rules: BR-2, BR-4, BR-5, BR-6, BR-9
+    
+      ---
+      TC-05: Regression — Oct 4 → Oct 5 change detection
+      - Purpose: Validate single NEW record output.
+      - Input: addresses_20241004.csv, addresses_20241005.csv, appropriate customers file.
+      - Expected output: address_changes_20241005.csv containing:
+      change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+      NEW,2004,1015,"Elijah Das","77 Whyte Ave","Seattle","WA","98101",US,2024-10-05,
+    
+      Expected records: 1
+      - Validation: Exact match.
+      - Covered rules: BR-2, BR-3, BR-6, BR-9, BR-10
+    
+      ---
+      TC-06: NEW record — address_id not in prior day
+      - Purpose: Confirm NEW classification when a completely new address_id appears.
+      - Input (synthetic):
+        - Day 1: addresses with IDs [3001, 3002]
+        - Day 2: addresses with IDs [3001, 3002, 3003]
+        - Customers file with matching customer for 3003.
+      - Expected output: One row: NEW,3003,...
+      - Validation: change_type = NEW; all field values from Day 2 record for 3003.
+      - Covered rules: BR-3, BR-5
+    
+      ---
+      TC-07: Multiple NEW records in a single day
+      - Purpose: Confirm all new address_ids are captured, not just the first.
+      - Input (synthetic):
+        - Day 1: addresses [3001]
+        - Day 2: addresses [3001, 3002, 3003, 3004]
+      - Expected output: Three NEW rows (3002, 3003, 3004). Expected records: 3.
+      - Validation: All three present; footer count = 3.
+      - Covered rules: BR-3, BR-9
+    
+      ---
+      TC-08: NEW record for a customer who already has another address
+      - Purpose: Confirm NEW is based on address_id, not customer_id.
+      - Input (synthetic):
+        - Day 1: address 3001 for customer 5001
+        - Day 2: address 3001 for customer 5001 (unchanged) + address 3002 for customer 5001 (new)
+      - Expected output: One row: NEW,3002,5001,...; address 3001 is excluded (unchanged).
+      - Validation: Only new address_id appears; existing address for same customer is excluded.
+      - Covered rules: BR-3, BR-11
+    
+      ---
+      TC-09: UPDATED — end_date field changes from NULL to a date
+      - Purpose: Confirm the observed update pattern.
+      - Input (synthetic):
+        - Day 1: address 3001 with end_date NULL
+        - Day 2: address 3001 with end_date 2025-01-15
+      - Expected output: UPDATED,3001,...,2025-01-15
+      - Validation: change_type = UPDATED; end_date = 2025-01-15.
+      - Covered rules: BR-4, BR-5
+    
+      ---
+      TC-10: UPDATED — address_line1 changes
+      - Purpose: Confirm update detection works for fields other than end_date.
+      - Input (synthetic):
+        - Day 1: address 3001 with address_line1 "100 Main St"
+        - Day 2: address 3001 with address_line1 "200 Main St" (all other fields identical)
+      - Expected output: UPDATED,3001,...,"200 Main St",...
+      - Validation: change_type = UPDATED; address_line1 reflects Day 2 value.
+      - Covered rules: BR-4, BR-5, A-4
+    
+      ---
+      TC-11: UPDATED — city changes
+      - Purpose: Confirm update detection for city field.
+      - Input (synthetic):
+        - Day 1: address 3001 with city "Toronto"
+        - Day 2: address 3001 with city "Ottawa" (all other fields identical)
+      - Expected output: UPDATED,3001,...,"Ottawa",...
+      - Validation: change_type = UPDATED.
+      - Covered rules: BR-4, A-4
+    
+      ---
+      TC-12: UPDATED — multiple fields change simultaneously
+      - Purpose: Confirm a single UPDATED row is emitted (not multiple) when several fields change at once.
+      - Input (synthetic):
+        - Day 1: address 3001 — city "Toronto", postal_code "M5H 1J9", end_date NULL
+        - Day 2: address 3001 — city "Ottawa", postal_code "K1N 5Y1", end_date 2025-02-01
+      - Expected output: Single row: UPDATED,3001,...,"Ottawa",...,"K1N 5Y1",...,2025-02-01
+      - Validation: Exactly one output row; all three changed fields reflect Day 2 values.
+      - Covered rules: BR-4, BR-5, A-4
+    
+      ---
+      TC-13: UPDATED record reflects current-day values, not prior-day
+      - Purpose: Explicitly verify BR-5.
+      - Input (synthetic):
+        - Day 1: address 3001 — address_line1 "OLD ADDRESS", end_date NULL
+        - Day 2: address 3001 — address_line1 "NEW ADDRESS", end_date 2025-03-01
+      - Expected output: Row shows "NEW ADDRESS" and 2025-03-01, NOT "OLD ADDRESS" or NULL.
+      - Validation: Every field in output matches Day 2, not Day 1.
+      - Covered rules: BR-5
+    
+      ---
+      TC-14: NEW record reflects current-day values
+      - Purpose: Confirm NEW records also carry current-day data (trivially true but worth asserting).
+      - Input (synthetic):
+        - Day 1: [no address 3002]
+        - Day 2: address 3002 with specific known values
+      - Expected output: All field values for 3002 match Day 2 input exactly.
+      - Covered rules: BR-5
+    
+      ---
+      TC-15: Customer name — simple first + last
+      - Purpose: Validate basic name concatenation.
+      - Input: Customer with first_name "Jane", last_name "Doe".
+      - Expected output: customer_name = "Jane Doe"
+      - Covered rules: BR-6
+    
+      ---
+      TC-16: Customer name — accented/unicode characters
+      - Purpose: Confirm special characters pass through correctly.
+      - Input: Customer with first_name "Ana María", last_name "de la Cruz" (customer 1017 from provided data).
+      - Expected output: customer_name = "Ana María de la Cruz"
+      - Validation: Accented characters preserved; multi-word last name intact.
+      - Covered rules: BR-6
+    
+      ---
+      TC-17: Customer name — hyphenated names
+      - Purpose: Confirm hyphenated names handled correctly.
+      - Input: Customer with first_name "Mary-Kate", last_name "McAllister" (customer 1021).
+      - Expected output: customer_name = "Mary-Kate McAllister"
+      - Covered rules: BR-6
+    
+      ---
+      TC-18: Customer name — apostrophe in name
+      - Purpose: Confirm apostrophes don't break quoting or concatenation.
+      - Input: Customer with first_name "James", last_name "O'Connor" (customer 1011).
+      - Expected output: customer_name = "James O'Connor"
+      - Validation: Apostrophe preserved; field properly quoted.
+      - Covered rules: BR-6
+    
+      ---
+      TC-19: No extraneous customer fields in output
+      - Purpose: Confirm prefix, suffix, sort_name, birthdate are absent.
+      - Input: Customer with prefix "Dr.", suffix "PhD", sort_name "Patel Liam", birthdate "1978-11-02" linked to a changed address.
+      - Expected output: Output row contains customer_name only; no column for prefix, suffix, sort_name, or birthdate. Output schema is
+      exactly: change_type, address_id, customer_id, customer_name, address_line1, city, state_province, postal_code, country, start_date,
+      end_date.
+      - Validation: Assert output header matches expected schema exactly; assert 11 columns per row.
+      - Covered rules: BR-7
+    
+      ---
+      TC-20: Zero-change day still produces output file
+      - Purpose: Confirm file generation even when no records differ.
+      - Input: Two identical consecutive address files.
+      - Expected output: File exists with header row, blank line, and Expected records: 0.
+      - Validation: File exists; header present; zero data rows; footer reads 0.
+      - Covered rules: BR-8, BR-9
+    
+      ---
+      TC-21: Multiple consecutive zero-change days
+      - Purpose: Confirm every day in sequence generates a file, not just the first zero-change day.
+      - Input: addresses_day1 = addresses_day2 = addresses_day3 = addresses_day4 (all identical).
+      - Expected output: Three output files (day2, day3, day4), each with 0 records.
+      - Covered rules: BR-8
+    
+      ---
+      TC-22: Footer count matches data rows — single record
+      - Purpose: Validate footer accuracy with 1 record.
+      - Input: One NEW address added.
+      - Expected output: Expected records: 1
+      - Covered rules: BR-9
+    
+      ---
+      TC-23: Footer count matches data rows — multiple records
+      - Purpose: Validate footer accuracy with several records.
+      - Input (synthetic): 5 addresses added and 3 addresses updated in one day.
+      - Expected output: Expected records: 8
+      - Covered rules: BR-9
+    
+      ---
+      TC-24: Footer count matches data rows — zero records
+      - Purpose: Validate footer when nothing changed.
+      - Input: Identical consecutive days.
+      - Expected output: Expected records: 0
+      - Covered rules: BR-9
+    
+      ---
+      TC-25: NULL end_date → empty string in NEW record
+      - Purpose: Confirm NULL conversion on a new active address.
+      - Input: New address with end_date = NULL in input.
+      - Expected output: end_date field is blank (empty between last comma and line end).
+      - Validation: No literal "NULL" string; field is empty.
+      - Covered rules: BR-10
+    
+      ---
+      TC-26: NULL end_date → empty string in UPDATED record (if end_date unchanged)
+      - Purpose: Confirm if an UPDATED record (changed on a different field) still shows empty for NULL end_date.
+      - Input (synthetic):
+        - Day 1: address 3001 with city "Toronto", end_date NULL
+        - Day 2: address 3001 with city "Ottawa", end_date NULL (still NULL)
+      - Expected output: UPDATED row with end_date blank (not "NULL").
+      - Covered rules: BR-10, BR-4
+    
+      ---
+      TC-27: Unchanged record is excluded — single unchanged among changes
+      - Purpose: Confirm filtering of unchanged rows when other rows do change.
+      - Input (synthetic):
+        - Day 1: addresses [3001, 3002, 3003]
+        - Day 2: addresses [3001 (unchanged), 3002 (city changed), 3003 (new end_date)]
+      - Expected output: Two rows (3002, 3003). Address 3001 absent.
+      - Covered rules: BR-11
+    
+      ---
+      TC-28: All records unchanged — zero output rows
+      - Purpose: Confirm complete filtering when nothing changes.
+      - Input: Two identical address files.
+      - Expected output: Header + Expected records: 0. No data rows.
+      - Covered rules: BR-11, BR-8
+    
+      ---
+      Tier 2 — Boundary Cases
+    
+      ---
+      TC-29: Output ordering — multiple changes sorted by address_id
+      - Purpose: Verify ascending address_id sort when many records change.
+      - Input (synthetic):
+        - Day 1: addresses [3005, 3001, 3010]
+        - Day 2: addresses [3005 (updated), 3001 (updated), 3010 (updated), 3003 (new)]
+        - Note: source order in file is 3005, 3001, 3010, 3003.
+      - Expected output: Rows ordered 3001, 3003, 3005, 3010 regardless of input file order.
+      - Validation: Assert output row order by address_id ascending.
+      - Covered rules: BR-12
+    
+      ---
+      TC-30: Output ordering — NEW and UPDATED interleaved by address_id
+      - Purpose: Confirm that change_type does not affect sort; address_id governs order.
+      - Input (synthetic):
+        - Day 1: addresses [3001, 3003, 3005]
+        - Day 2: addresses [3001 (updated), 3002 (new), 3003 (unchanged), 3004 (new), 3005 (updated)]
+      - Expected output rows in order: 3001 (UPDATED), 3002 (NEW), 3004 (NEW), 3005 (UPDATED).
+      - Covered rules: BR-12
+    
+      ---
+      TC-31: Customer file from a prior date used when same-day file missing
+      - Purpose: Probe whether ETL can function without a same-date customer file.
+      - Input (synthetic):
+        - addresses_day1.csv, addresses_day2.csv (with a change)
+        - customers_day1.csv exists, customers_day2.csv does NOT exist
+      - Expected output: Output is generated with correct customer_name from day1 customer data.
+      - Validation: Output file exists; customer_name correctly populated.
+      - Covered rules: BR-13, A-3
+    
+      ---
+      TC-32: Customer data changes between days — which snapshot is used?
+      - Purpose: Determine whether the customer name reflects the current-day or prior-day customer data.
+      - Input (synthetic):
+        - customers_day1: customer 5001 first_name "John", last_name "Smith"
+        - customers_day2: customer 5001 first_name "Jonathan", last_name "Smith"
+        - Address for 5001 changes between day1 and day2.
+      - Expected output: Either "John Smith" or "Jonathan Smith" — documents which snapshot is used.
+      - Validation: This is a discovery test. The result resolves A-3.
+      - Covered rules: BR-6, BR-13, A-3
+    
+      ---
+      Tier 3 — Negative / Failure Cases
+    
+      ---
+      TC-33: Address removed from snapshot — does DELETED appear?
+      - Purpose: Resolve ambiguity A-1.
+      - Input (synthetic):
+        - Day 1: addresses [3001, 3002, 3003]
+        - Day 2: addresses [3001, 3003] (address 3002 removed)
+      - Expected output: Unknown. One of:
+        - (a) Row with change_type = DELETED for address 3002 (using Day 1 values)
+        - (b) No row for 3002 (deletions silently ignored)
+        - (c) ETL error
+      - Validation: This is a discovery test. Document actual behavior.
+      - Covered rules: A-1
+    
+      ---
+      TC-34: Address removed and re-added same day
+      - Purpose: Explore edge case where an address_id disappears and a different address_id appears for the same customer.
+      - Input (synthetic):
+        - Day 1: address 3001 (customer 5001, city "Toronto"), address 3002 (customer 5002)
+        - Day 2: address 3001 removed, address 3003 (customer 5001, city "Ottawa") added, address 3002 unchanged
+      - Expected output: Depends on A-1 resolution. At minimum, NEW for 3003. Possibly DELETED for 3001.
+      - Covered rules: A-1, BR-3
+    
+      ---
+      TC-35: No customer file exists for any date
+      - Purpose: Test behavior when customer enrichment is impossible.
+      - Input: addresses_day1.csv, addresses_day2.csv (with a change). No customers_* files at all.
+      - Expected output: Unknown. Either:
+        - (a) ETL fails/errors
+        - (b) Output produced with empty customer_name
+        - (c) Output rows excluded
+      - Validation: Discovery test for A-5 / A-7.
+      - Covered rules: A-5, A-7
+    
+      ---
+      TC-36: Customer file exists but is empty (header only)
+      - Purpose: Probe error handling with empty customer data.
+      - Input: Valid address files; customers file has only the header row.
+      - Expected output: Depends on A-5 — likely error or blank customer_name.
+      - Covered rules: A-5
+    
+      ---
+      TC-37: Change to a field not previously observed changing (postal_code)
+      - Purpose: Confirm UPDATED triggers for any field change, not just end_date.
+      - Input (synthetic):
+        - Day 1: address 3001 postal_code "M5H 1J9"
+        - Day 2: address 3001 postal_code "K1N 5Y1" (all other fields identical)
+      - Expected output: UPDATED row with postal_code "K1N 5Y1".
+      - Covered rules: BR-4, A-4
+    
+      ---
+      TC-38: Change to start_date field
+      - Purpose: Confirm UPDATED triggers for start_date change (unusual scenario).
+      - Input (synthetic):
+        - Day 1: address 3001 start_date "2024-01-01"
+        - Day 2: address 3001 start_date "2024-01-15" (corrected)
+      - Expected output: UPDATED row with start_date "2024-01-15".
+      - Covered rules: BR-4, A-4
+    
+      ---
+      TC-39: Orphan address — customer_id not in customers file
+      - Purpose: Resolve ambiguity A-5.
+      - Input (synthetic):
+        - Day 2 has new address 3001 with customer_id 9999
+        - No customer with id 9999 in any customers file
+      - Expected output: Unknown. One of:
+        - (a) Row emitted with blank customer_name
+        - (b) Row excluded entirely
+        - (c) ETL error
+      - Validation: Discovery test.
+      - Covered rules: A-5
+    
+      ---
+      TC-40: customer_id changes on an existing address_id
+      - Purpose: Edge case — same address_id, different customer_id between days.
+      - Input (synthetic):
+        - Day 1: address 3001, customer_id 5001
+        - Day 2: address 3001, customer_id 5002 (all other fields same)
+      - Expected output: UPDATED row with customer_id 5002 and customer_name from customer 5002.
+      - Validation: Confirms customer_id is a changeable field; name lookup uses current-day customer_id.
+      - Covered rules: BR-4, BR-6
+    
+      ---
+      TC-41: Quoting — address_line1 containing a comma
+      - Purpose: Confirm proper CSV quoting when data contains commas.
+      - Input (synthetic): address_line1 = "Suite 100, 200 Main St"
+      - Expected output: Field is quoted: "Suite 100, 200 Main St" — no column misalignment.
+      - Validation: Parse output CSV; confirm correct number of columns.
+      - Covered rules: A-6
+    
+      ---
+      TC-42: Quoting — customer name containing a comma
+      - Purpose: Confirm customer_name quoting with special characters.
+      - Input (synthetic): first_name = "John", last_name = "Smith, Jr."
+      - Expected output: customer_name = "John Smith, Jr." — properly quoted.
+      - Validation: CSV parses to 11 columns; customer_name field intact.
+      - Covered rules: BR-6, A-6
+    
+      ---
+      Tier 4 — Structural / Format Validation
+    
+      ---
+      TC-43: Output header matches expected schema exactly
+      - Purpose: Validate column names and order.
+      - Input: Any day with at least one change.
+      - Expected output: Header row is exactly:
+      change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+      - Validation: String comparison of first line.
+      - Covered rules: BR-7 (implicit)
+    
+      ---
+      TC-44: Output file naming convention
+      - Purpose: Validate output file name matches pattern address_changes_YYYYMMDD.csv where YYYYMMDD is the current-day date.
+      - Input: addresses_20250115.csv, addresses_20250116.csv
+      - Expected output: File named address_changes_20250116.csv
+      - Covered rules: BR-2 (implicit)
+    
+      ---
+      TC-45: Empty line between last data row and footer
+      - Purpose: Validate the exact file structure: header, data rows, blank line, footer.
+      - Input: Any day with changes.
+      - Expected output: After the last data row, a blank line precedes the Expected records: N line.
+      - Validation: Assert line structure of file.
+      - Covered rules: BR-9
+    
+      ---
+      TC-46: Full week regression — all 7 days end-to-end
+      - Purpose: Run the entire provided input through the ETL and compare all 6 output files against provided output.
+      - Input: All 7 addresses files + all 5 customers files from provided input.
+      - Expected output: Exact match of all 6 provided output files.
+      - Validation: Byte-for-byte comparison of each output file.
+      - Covered rules: All BR rules
+    
+      ---
+      Coverage Gaps & Assumptions
+    
+      Gap ID: CG-1
+      Description: DELETED change_type is untested against real data
+      Impact: High
+      Recommendation: Run TC-33 first; design further tests based on result
+      ────────────────────────────────────────
+      Gap ID: CG-2
+      Description: Customer name with NULL first_name or NULL last_name never observed
+      Impact: Medium
+      Recommendation: Add synthetic test: customer with NULL first_name — does output show " LastName" or "LastName"?
+      ────────────────────────────────────────
+      Gap ID: CG-3
+      Description: Very large files (thousands of records, hundreds of changes) not tested
+      Impact: Low
+      Recommendation: Performance/scale testing outside scope of functional tests
+      ────────────────────────────────────────
+      Gap ID: CG-4
+      Description: Date gaps in input (e.g., addresses_day1 and addresses_day3, no day2) not tested
+      Impact: Medium
+      Recommendation: Add test: does ETL compare day3 to day1 or error?
+      ────────────────────────────────────────
+      Gap ID: CG-5
+      Description: Duplicate address_id within a single day's file not tested
+      Impact: Medium
+      Recommendation: Add test: two rows with same address_id — which wins?
+      ────────────────────────────────────────
+      Gap ID: CG-6
+      Description: Output behavior when end_date changes FROM a date back TO NULL not tested
+      Impact: Low
+      Recommendation: Add test: does output show blank end_date for the reversal?
+      ────────────────────────────────────────
+      Gap ID: CG-7
+      Description: Country field quoting logic not fully explained
+      Impact: Low
+      Recommendation: TC-41/TC-42 partially cover; may need test with a country code containing special chars (unlikely in real data)
+    
+      ---
+      Want me to save this to a file as well?
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
 
 
 ************************************************************************************************************************
