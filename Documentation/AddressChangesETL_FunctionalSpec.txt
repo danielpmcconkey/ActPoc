@@ -1,0 +1,584 @@
+Address Changes ETL — Functional Specification
+================================================
+
+Document References:
+  - AddressChangesBusinessReq.txt   (Business Rules BR-1 through BR-13, Ambiguities A-1 through A-7)
+  - AddressChangesTestCases.txt     (Test Cases TC-01 through TC-46)
+
+
+1. System Overview
+------------------
+
+1.1 Purpose
+
+This ETL pipeline detects daily changes to customer address data by comparing consecutive
+daily snapshots. It produces a daily change log file containing only new and modified address
+records, enriched with the customer's full name. The output serves downstream consumers who
+need an incremental feed of address changes rather than full daily snapshots.
+
+1.2 Scope
+
+  - Input:   Daily address snapshot files and daily customer snapshot files.
+  - Output:  Daily address change log files.
+  - The pipeline processes one pair of consecutive days at a time (previous day vs. current day).
+  - The pipeline must process all available consecutive day-pairs in a single run when multiple
+    input dates are present.
+
+1.3 Glossary
+
+  Term              | Definition
+  ------------------|-------------------------------------------------------------------
+  Baseline          | The first chronological input date; used only as a comparison anchor
+  Current day       | The date being processed (produces an output file)
+  Previous day      | The date immediately before the current day in the input sequence
+  Snapshot          | A complete addresses or customers file for a single date
+  Change log        | The output file listing NEW and UPDATED address records for one day
+  address_id        | The unique identifier for an address record (primary comparison key)
+
+
+2. Input Specifications
+-----------------------
+
+2.1 Address Snapshot Files
+
+  File naming:    addresses_YYYYMMDD.csv
+  Format:         CSV with quoted string fields
+  Encoding:       UTF-8
+  Header row:     Required (first line)
+
+  Schema:
+  Field            | Type    | Nullable | Description
+  -----------------|---------|----------|--------------------------------------------
+  address_id       | Integer | No       | Unique address identifier
+  customer_id      | Integer | No       | Foreign key to customer record
+  address_line1    | String  | No       | Street address
+  city             | String  | No       | City name
+  state_province   | String  | No       | State or province code/name
+  postal_code      | String  | No       | Postal or ZIP code
+  country          | String  | No       | Two-letter country code (e.g., US, CA)
+  start_date       | Date    | No       | Date the address became active (YYYY-MM-DD)
+  end_date         | Date    | Yes      | Date the address was deactivated; NULL if active
+
+  Constraints:
+  - Each file represents a complete snapshot for that date.
+  - address_id is unique within a single file.
+  - NULL is represented as the literal unquoted string NULL.
+
+2.2 Customer Snapshot Files
+
+  File naming:    customers_YYYYMMDD.csv
+  Format:         CSV with quoted string fields
+  Encoding:       UTF-8
+  Header row:     Required (first line)
+
+  Schema:
+  Field            | Type    | Nullable | Description
+  -----------------|---------|----------|--------------------------------------------
+  id               | Integer | No       | Unique customer identifier
+  prefix           | String  | Yes      | Name prefix (Mr., Dr., etc.)
+  first_name       | String  | No       | Customer first name
+  last_name        | String  | No       | Customer last name
+  sort_name        | String  | Yes      | Sort-friendly name form
+  suffix           | String  | Yes      | Name suffix (Jr., PhD, etc.)
+  birthdate        | Date    | Yes      | Date of birth (YYYY-MM-DD)
+
+  Constraints:
+  - id is unique within a single file.
+  - Only the fields first_name and last_name are used by this ETL.
+
+2.3 Customer File Resolution
+
+  When resolving which customer file to use for a given processing date:
+
+  DECISION REQUIRED (Ambiguity A-3/A-7): The original data does not definitively establish
+  the resolution strategy. The implementer SHALL choose one of:
+
+    Option A: Use the customer file matching the current processing date (same-day).
+              If it does not exist, fall back to the most recent prior date.
+    Option B: Use the most recent customer file whose date is <= the current processing date.
+    Option C: Always use the customer file from the same date as the current-day address file;
+              fail if it does not exist.
+
+  RECOMMENDED: Option B (most recent available <= current date). This is consistent with the
+  observed behavior where output was produced for dates lacking same-day customer files
+  (Oct 5 and Oct 6 used customer data despite no customers_20241005.csv or
+  customers_20241006.csv existing).
+
+
+3. Output Specification
+-----------------------
+
+3.1 Change Log Files
+
+  File naming:    address_changes_YYYYMMDD.csv
+                  Where YYYYMMDD matches the current-day processing date.
+  Format:         CSV
+  Encoding:       UTF-8
+
+  Schema (11 fields):
+  Position | Field            | Type    | Source                              | Quoted
+  ---------|------------------|---------|-------------------------------------|-------
+  1        | change_type      | String  | Derived (see Section 4.2)           | No
+  2        | address_id       | Integer | addresses.address_id                | No
+  3        | customer_id      | Integer | addresses.customer_id               | No
+  4        | customer_name    | String  | Derived (see Section 4.3)           | Yes
+  5        | address_line1    | String  | addresses.address_line1             | Yes
+  6        | city             | String  | addresses.city                      | Yes
+  7        | state_province   | String  | addresses.state_province            | Yes
+  8        | postal_code      | String  | addresses.postal_code               | Yes
+  9        | country          | String  | addresses.country                   | No
+  10       | start_date       | Date    | addresses.start_date                | No
+  11       | end_date         | Date    | addresses.end_date (NULL -> empty)  | No
+
+3.2 Output File Structure
+
+  Every output file SHALL have the following structure, in order:
+
+  Line 1:         Header row (field names, comma-separated, unquoted)
+  Lines 2..N+1:   Data rows (zero or more), one per changed/new address record
+  Line N+2:       Empty/blank line
+  Line N+3:       Footer: "Expected records: N" where N = count of data rows
+
+  Example (2 data rows):
+  ---------------------------------------------------------------
+  change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+  UPDATED,2001,1001,"Ethan Carter","1452 Oak Street","Columbus","OH","43215",US,2019-01-01,2024-10-02
+  NEW,2002,1001,"Ethan Carter","250 Rideau Street","Ottawa","ON","K1N 5Y1",CA,2024-10-02,
+
+  Expected records: 2
+  ---------------------------------------------------------------
+
+  Example (0 data rows):
+  ---------------------------------------------------------------
+  change_type,address_id,customer_id,customer_name,address_line1,city,state_province,postal_code,country,start_date,end_date
+
+  Expected records: 0
+  ---------------------------------------------------------------
+
+3.3 Quoting Rules
+
+  The following fields SHALL be enclosed in double quotes in data rows:
+    - customer_name
+    - address_line1
+    - city
+    - state_province
+    - postal_code
+
+  The following fields SHALL NOT be quoted:
+    - change_type
+    - address_id
+    - customer_id
+    - country
+    - start_date
+    - end_date
+
+  The header row SHALL NOT have any fields quoted.
+
+  If a field value contains a comma, double quote, or newline, standard CSV escaping applies
+  (enclose in double quotes; escape internal double quotes by doubling them).
+
+3.4 NULL Handling
+
+  - Input NULL values for end_date SHALL be rendered as an empty field in the output
+    (i.e., nothing between the final comma and the line terminator).
+  - The literal string "NULL" SHALL NOT appear in any output field.
+
+
+4. Data Transformation Specifications
+--------------------------------------
+
+4.1 Change Detection
+
+  Function:       Compare current-day address snapshot against previous-day address snapshot.
+  Comparison key: address_id
+  Scope:          All fields in the address record (address_id, customer_id, address_line1,
+                  city, state_province, postal_code, country, start_date, end_date).
+
+  Behavior:
+  - For each address_id in the CURRENT-DAY snapshot:
+      a) If address_id does NOT exist in the PREVIOUS-DAY snapshot:
+         -> Classify as NEW
+         -> Include in output
+      b) If address_id EXISTS in the PREVIOUS-DAY snapshot:
+         -> Compare ALL field values between the two days
+         -> If ANY field value differs: classify as UPDATED, include in output
+         -> If ALL field values are identical: EXCLUDE from output (unchanged)
+
+  - For each address_id in the PREVIOUS-DAY snapshot that does NOT exist in the
+    CURRENT-DAY snapshot:
+
+    DECISION REQUIRED (Ambiguity A-1): The original data contains no deletions.
+    The implementer SHALL choose one of:
+
+      Option A: Classify as DELETED, include in output using the previous day's field values.
+      Option B: Silently ignore deletions (do not include in output).
+
+    RECOMMENDED: Option A (emit DELETED records). This provides a complete change audit trail.
+    If Option A is chosen, the change_type controlled vocabulary becomes: NEW, UPDATED, DELETED.
+
+  Constraints:
+  - Comparison is field-by-field, value-by-value.
+  - NULL-to-NULL is considered equal (not a change).
+  - NULL-to-value or value-to-NULL IS a change.
+  - The comparison uses the raw input values before any output transformations (e.g., NULL
+    handling applies only to output rendering, not to change detection).
+
+  Traceability: BR-2, BR-3, BR-4, BR-11 | TC-03 through TC-14, TC-27, TC-28, TC-33, TC-34
+
+4.2 Change Type Assignment
+
+  Function:       Assign the change_type field based on change detection results.
+
+  Rules:
+  Condition                                                    | change_type value
+  -------------------------------------------------------------|------------------
+  address_id present in current day, absent in previous day    | NEW
+  address_id present in both days, at least one field differs  | UPDATED
+  address_id absent in current day, present in previous day    | DELETED (if implemented per A-1 Option A)
+
+  Constraints:
+  - change_type is always uppercase.
+  - Exactly one change_type per output row.
+  - change_type is a derived field with no direct input source.
+
+  Traceability: BR-3, BR-4 | TC-06 through TC-12, TC-33
+
+4.3 Customer Name Enrichment
+
+  Function:       Derive customer_name by joining address data to customer data.
+
+  Join condition: addresses.customer_id = customers.id
+
+  Derivation:     customer_name = customers.first_name + " " + customers.last_name
+                  (single space separator; no prefix, suffix, or sort_name)
+
+  Source fields used:
+  - customers.first_name  (required)
+  - customers.last_name   (required)
+
+  Source fields explicitly excluded:
+  - customers.prefix
+  - customers.suffix
+  - customers.sort_name
+  - customers.birthdate
+
+  Behavior:
+  - The join is performed against the resolved customer file (see Section 2.3).
+  - The customer_name is looked up using the CURRENT-DAY address record's customer_id.
+  - For DELETED records (if implemented), the customer_id from the PREVIOUS-DAY record
+    is used for the lookup.
+  - Unicode characters, accents, hyphens, and apostrophes in names SHALL be preserved
+    exactly as they appear in the customer source data.
+
+  Error behavior for missing customer (Ambiguity A-5):
+
+    DECISION REQUIRED: If a customer_id in the address data has no matching customer record:
+
+      Option A: Emit the row with customer_name as an empty quoted string ("").
+      Option B: Exclude the row from output entirely.
+      Option C: Halt processing with an error.
+
+    RECOMMENDED: Option C (halt with error). An orphaned customer_id likely indicates a data
+    quality problem that should be investigated, not silently masked.
+
+  Traceability: BR-6, BR-7 | TC-15 through TC-19, TC-39, TC-40, TC-42
+
+4.4 Field Passthrough
+
+  The following fields are copied directly from the CURRENT-DAY address record to the output
+  with no transformation (except quoting as defined in Section 3.3):
+
+  Input Field              | Output Field
+  -------------------------|-------------------
+  addresses.address_id     | address_id
+  addresses.customer_id    | customer_id
+  addresses.address_line1  | address_line1
+  addresses.city           | city
+  addresses.state_province | state_province
+  addresses.postal_code    | postal_code
+  addresses.country        | country
+  addresses.start_date     | start_date
+
+  Traceability: BR-5 | TC-13, TC-14
+
+4.5 End Date Transformation
+
+  Input:          addresses.end_date
+  Output:         end_date
+  Transformation: If input value is NULL, output as empty (blank field).
+                  If input value is a date, output as-is in YYYY-MM-DD format.
+
+  Traceability: BR-10 | TC-25, TC-26
+
+4.6 Output Ordering
+
+  Output data rows SHALL be sorted by address_id in ascending numeric order.
+
+  Note: This rule has medium confidence (BR-12). If testing reveals a different order,
+  update this specification accordingly.
+
+  Traceability: BR-12 | TC-29, TC-30
+
+4.7 Record Count Footer
+
+  Function:       Append a record-count validation line after all data rows.
+
+  Format:         "Expected records: N"
+                  Where N is the integer count of data rows written to the file
+                  (excluding the header row and the footer line itself).
+
+  Placement:      After a blank line following the last data row (or the header if zero
+                  data rows).
+
+  Constraints:
+  - N must exactly match the number of data rows in the file.
+  - N = 0 is valid (zero-change days).
+
+  Traceability: BR-9 | TC-22 through TC-24, TC-45
+
+
+5. Functional Processing Flow
+------------------------------
+
+5.1 Initialization
+
+  Step 1:  Discover all available address input files matching the pattern
+           addresses_YYYYMMDD.csv in the input directory.
+
+  Step 2:  Sort discovered dates in ascending chronological order.
+
+  Step 3:  Designate the first (earliest) date as the BASELINE.
+           No output file is produced for the baseline date.
+
+  Step 4:  Discover all available customer input files matching the pattern
+           customers_YYYYMMDD.csv in the input directory.
+
+  Step 5:  Validate that at least two address input dates exist.
+           If only one date exists, processing completes with no output.
+
+5.2 Daily Processing Loop
+
+  For each date D(i) from the second date onward (i = 2, 3, ... N):
+
+    Step 6:   Load the PREVIOUS-DAY address snapshot: addresses file for D(i-1).
+
+    Step 7:   Load the CURRENT-DAY address snapshot: addresses file for D(i).
+
+    Step 8:   Resolve the customer file for D(i) per Section 2.3.
+              Load the resolved customer snapshot.
+
+    Step 9:   Build a lookup index of customer records keyed by customers.id.
+
+    Step 10:  Build a lookup index of previous-day address records keyed by address_id.
+
+    Step 11:  Build a lookup index of current-day address records keyed by address_id.
+
+    Step 12:  Initialize an empty change list.
+
+    Step 13:  FOR EACH address_id in the current-day index:
+                - If address_id NOT in previous-day index:
+                    -> Create output record with change_type = NEW
+                    -> Populate all fields from current-day address record
+                    -> Resolve customer_name via customer lookup using customer_id
+                    -> Apply end_date NULL-to-empty transformation
+                    -> Append to change list
+                - If address_id IS in previous-day index:
+                    -> Compare all field values between current and previous
+                    -> If any difference found:
+                         -> Create output record with change_type = UPDATED
+                         -> Populate all fields from current-day address record
+                         -> Resolve customer_name via customer lookup
+                         -> Apply end_date NULL-to-empty transformation
+                         -> Append to change list
+                    -> If no differences: skip (do not include in output)
+
+    Step 14:  (If DELETED is implemented per Section 4.1)
+              FOR EACH address_id in the previous-day index:
+                - If address_id NOT in current-day index:
+                    -> Create output record with change_type = DELETED
+                    -> Populate all fields from previous-day address record
+                    -> Resolve customer_name via customer lookup
+                    -> Apply end_date NULL-to-empty transformation
+                    -> Append to change list
+
+    Step 15:  Sort the change list by address_id ascending.
+
+    Step 16:  Write the output file address_changes_YYYYMMDD.csv for date D(i):
+                - Write header row
+                - Write all data rows from the sorted change list
+                - Write a blank line
+                - Write footer: "Expected records: N" where N = length of change list
+
+    Step 17:  Proceed to next date D(i+1), or finish if no more dates.
+
+5.3 Processing Flow Diagram
+
+  [Discover input files]
+         |
+         v
+  [Sort dates chronologically]
+         |
+         v
+  [Date 1 = BASELINE, no output]
+         |
+         v
+  [For each subsequent date D(i):]
+         |
+         +---> [Load addresses D(i-1)]
+         +---> [Load addresses D(i)]
+         +---> [Resolve & load customers for D(i)]
+         |
+         v
+  [Compare address snapshots by address_id]
+         |
+         +---> [NEW: in current, not in previous]
+         +---> [UPDATED: in both, fields differ]
+         +---> [DELETED: in previous, not in current] (if implemented)
+         +---> [UNCHANGED: in both, identical -> skip]
+         |
+         v
+  [Enrich with customer_name (first_name + " " + last_name)]
+         |
+         v
+  [Sort by address_id ascending]
+         |
+         v
+  [Write output file: header + data rows + blank line + footer]
+         |
+         v
+  [Next date or finish]
+
+
+6. Error Handling Behavior
+--------------------------
+
+6.1 Missing Address File
+
+  Condition:   An expected address file for a date in the sequence is missing.
+  Behavior:    DECISION REQUIRED. Options:
+               (a) Skip that date pair and continue with the next available pair.
+               (b) Halt processing with an error.
+  Recommended: (b) Halt. Missing snapshot data compromises change detection integrity.
+
+6.2 Missing Customer File
+
+  Condition:   No customer file can be resolved for the current processing date
+               (per Section 2.3 resolution strategy).
+  Behavior:    Halt processing with an error indicating which date lacks customer data.
+  Traceability: TC-35
+
+6.3 Orphaned Customer ID
+
+  Condition:   An address record's customer_id has no matching record in the customer file.
+  Behavior:    Per Section 4.3 decision. Recommended: halt with error.
+  Traceability: TC-39
+
+6.4 Duplicate Address ID
+
+  Condition:   A single day's address file contains two or more records with the same address_id.
+  Behavior:    DECISION REQUIRED. Options:
+               (a) Use the last occurrence (file-order wins).
+               (b) Use the first occurrence.
+               (c) Halt with error.
+  Recommended: (c) Halt. Duplicate primary keys indicate corrupt input.
+  Traceability: Coverage Gap CG-5
+
+6.5 Malformed Input
+
+  Condition:   Input file cannot be parsed as valid CSV (bad quoting, wrong column count, etc.).
+  Behavior:    Halt processing with an error indicating the file name, line number, and nature
+               of the parse failure.
+
+6.6 Empty Address File
+
+  Condition:   An address file exists but contains only a header row (zero data rows).
+  Behavior:    Treat as a valid snapshot with zero addresses. If comparing against a previous
+               day with addresses, all previous addresses would be considered DELETED (if
+               DELETED is implemented) or no output rows would be produced (if DELETED is
+               not implemented).
+
+
+7. Execution Behavior
+---------------------
+
+7.1 Idempotency
+
+  Running the ETL multiple times with the same input SHALL produce identical output.
+  Output files from a previous run may be overwritten.
+
+7.2 File Generation Guarantee
+
+  An output file SHALL be produced for every processing date (every date after the baseline),
+  regardless of whether any changes were detected.
+
+  Traceability: BR-8 | TC-20, TC-21
+
+7.3 Atomicity
+
+  Each output file SHOULD be written atomically (e.g., write to a temporary file, then rename)
+  to prevent partial files from being consumed by downstream processes.
+
+7.4 Processing Order
+
+  Dates SHALL be processed in strict chronological order. Each day's comparison depends on
+  the previous day's snapshot, so parallel processing of day-pairs is not appropriate.
+
+
+8. Traceability Matrix
+-----------------------
+
+Requirement | Functional Behavior (Section)              | Test Cases
+------------|--------------------------------------------|---------------------------------
+BR-1        | 5.1 Step 3: Baseline produces no output    | TC-01, TC-02
+BR-2        | 5.2 Steps 6-7: Consecutive day comparison  | TC-03, TC-04, TC-05, TC-44, TC-46
+BR-3        | 4.1, 4.2: NEW classification               | TC-06, TC-07, TC-08, TC-34
+BR-4        | 4.1, 4.2: UPDATED classification           | TC-09, TC-10, TC-11, TC-12, TC-26, TC-37, TC-38, TC-40
+BR-5        | 4.4: Current-day values in output          | TC-03, TC-04, TC-05, TC-09, TC-12, TC-13, TC-14
+BR-6        | 4.3: Customer name derivation              | TC-15, TC-16, TC-17, TC-18, TC-32, TC-40, TC-42
+BR-7        | 4.3: Excluded customer fields              | TC-19, TC-43
+BR-8        | 7.2: File always generated                 | TC-20, TC-21, TC-28
+BR-9        | 4.7, 3.2: Record count footer              | TC-22, TC-23, TC-24, TC-45
+BR-10       | 4.5: NULL to empty conversion              | TC-25, TC-26
+BR-11       | 4.1: Unchanged records excluded            | TC-27, TC-28
+BR-12       | 4.6: Output ordering                       | TC-29, TC-30
+BR-13       | 2.3: Customer file resolution              | TC-31, TC-32
+A-1         | 4.1: DELETED handling (decision required)  | TC-33, TC-34
+A-3/A-7     | 2.3: Customer snapshot selection            | TC-31, TC-32, TC-35, TC-36
+A-4         | 4.1: Multi-field change detection           | TC-10, TC-11, TC-12, TC-37, TC-38
+A-5         | 4.3: Orphan customer_id handling            | TC-39, TC-40
+A-6         | 3.3: Quoting rules                         | TC-41, TC-42
+
+
+9. Open Decisions Summary
+--------------------------
+
+The following items require explicit decisions before implementation. Each references the
+ambiguity from the business requirements and the recommended resolution.
+
+Decision | Topic                        | Section | Ambiguity | Recommendation
+---------|------------------------------|---------|-----------|------------------------------------
+D-1      | DELETED change type          | 4.1     | A-1       | Implement DELETED for full audit trail
+D-2      | Customer file resolution     | 2.3     | A-3/A-7   | Most recent file <= current date
+D-3      | Orphan customer_id handling  | 4.3     | A-5       | Halt with error
+D-4      | Duplicate address_id in file | 6.4     | CG-5      | Halt with error
+D-5      | Missing address file in seq  | 6.1     | CG-4      | Halt with error
+
+
+10. Appendix: Complete Field Mapping
+-------------------------------------
+
+Source Table | Source Field     | Output Field     | Transformation           | Section
+------------|------------------|------------------|--------------------------|--------
+addresses   | address_id       | address_id       | Direct passthrough       | 4.4
+addresses   | customer_id      | customer_id      | Direct passthrough       | 4.4
+customers   | first_name       | customer_name    | Concatenate with space   | 4.3
+customers   | last_name        | customer_name    | Concatenate with space   | 4.3
+addresses   | address_line1    | address_line1    | Direct passthrough       | 4.4
+addresses   | city             | city             | Direct passthrough       | 4.4
+addresses   | state_province   | state_province   | Direct passthrough       | 4.4
+addresses   | postal_code      | postal_code      | Direct passthrough       | 4.4
+addresses   | country          | country          | Direct passthrough       | 4.4
+addresses   | start_date       | start_date       | Direct passthrough       | 4.4
+addresses   | end_date         | end_date         | NULL -> empty string     | 4.5
+(derived)   | (comparison)     | change_type      | NEW / UPDATED / DELETED  | 4.1, 4.2
+(derived)   | (row count)      | footer line      | "Expected records: N"    | 4.7

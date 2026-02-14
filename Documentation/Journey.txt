@@ -1930,14 +1930,16 @@ RESPONSE
                                                                                                                                                 
       Testing is organized into four tiers:
     
-      1. Normal/Positive cases — Validate that confirmed business rules produce correct output against the existing provided data (regression
-      baseline).
-      2. Boundary cases — Stress the edges of each rule with synthetic scenarios (first day, last day, single record, many changes).
+      1. Normal/Positive cases — Validate that confirmed business rules produce correct output against the existing 
+      provided data (regression baseline).
+      2. Boundary cases — Stress the edges of each rule with synthetic scenarios (first day, last day, single record,
+      many changes).
       3. Negative/Failure cases — Probe behavior when inputs are missing, malformed, or contradictory.
-      4. Ambiguity-exploration cases — Designed to resolve the open questions (A-1 through A-7) by forcing the ETL into scenarios the original
-      data never covered.
+      4. Ambiguity-exploration cases — Designed to resolve the open questions (A-1 through A-7) by forcing the ETL into 
+      scenarios the original data never covered.
     
-      All test cases are implementation-agnostic. Each defines input data, expected output, and the rule(s) it validates.
+      All test cases are implementation-agnostic. Each defines input data, expected output, and the rule(s) it 
+      validates.
     
       ---
       Rule-to-Test Coverage Matrix
@@ -2464,17 +2466,104 @@ RESPONSE
 
 PROMPT
 
+    yes, save it in the Documentation directory as well, please 
 
 RESPONSE
 
-
+    Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt)                                             
+      ⎿  Wrote 467 lines to ../../media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt                         
+           1 Address Changes ETL — Test Case Specification
+           2 ===============================================                                                                                    
+           3                                                    
+           4 Test Strategy Overview                                                                                                             
+           5 ---------------------                              
+           6
+           7 Testing is organized into four tiers:
+           8
+           9 1. Normal/Positive cases — Validate that confirmed business rules produce correct output
+          10    against the existing provided data (regression baseline).
+         … +457 lines (ctrl+o to expand)
+    
+    ● Saved to /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesTestCases.txt.
 
 ************************************************************************************************************************
 
 PROMPT
 
+    You are a functional systems analyst responsible for producing a formal ETL functional specification based on 
+    inferred business requirements and test cases that were previously written to 
+    /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation.
+    Mission
+    Translate business intent into implementation-neutral functional behavior documentation.
+    Constraints
+        • No coding details
+        • No framework assumptions
+        • Behavior-focused specification
+        • Fully traceable to rules and tests
+    Analysis Tasks
+        1. Consolidate transformation behavior
+        2. Define processing flow
+        3. Specify data handling behavior
+        4. Define validation logic
+        5. Clarify error handling
+        6. Define execution expectations
+    Required Output Structure
+    System Overview
+    Functional Processing Flow
+    Step-by-step ETL behavior description.
+    Data Transformation Specifications
+    For each transformation:
+        • Input definition
+        • Output definition
+        • Functional behavior
+        • Constraints
+        • Validation rules
+    Error Handling Behavior
+    Execution Behavior
+    Traceability Matrix
+    Requirement → Functional Behavior → Test Case
+    Deliverable Goal
+    Produce a formal specification usable by a developer to implement the ETL.
 
 RESPONSE
+
+    Let me re-read both documents to ensure I'm working from the latest versions.
+    
+    ● Read 2 files (ctrl+o to expand)                                                                                                           
+       
+    ● Good, I have both documents. Now I'll produce the formal functional specification.                                                        
+                                                                
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt)                                    
+      ⎿  Wrote 585 lines to ../../media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt
+           1 Address Changes ETL — Functional Specification                                                                                     
+           2 ================================================   
+           3                                                                                                                                    
+           4 Document References:                               
+           5   - AddressChangesBusinessReq.txt   (Business Rules BR-1 through BR-13, Ambiguities A-1 through A-7)
+           6   - AddressChangesTestCases.txt     (Test Cases TC-01 through TC-46)
+           7
+           8
+           9 1. System Overview
+          10 ------------------
+         … +575 lines (ctrl+o to expand)
+    
+    ● Saved to /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AddressChangesETL_FunctionalSpec.txt.
+    
+      The specification covers:                                                                                                                 
+      
+      - Sections 1-2: System overview, input file schemas, and the customer file resolution strategy (with decision point)                      
+      - Section 3: Full output schema, file structure, quoting rules, and NULL handling
+      - Section 4: All 7 transformation behaviors — change detection, change type assignment, customer name enrichment, field passthrough,
+      end_date conversion, output ordering, and record count footer
+      - Section 5: Step-by-step processing flow (initialization + daily loop) with a flow diagram
+      - Section 6: Error handling for 6 failure scenarios (missing files, orphans, duplicates, malformed input)
+      - Section 7: Execution expectations (idempotency, file generation guarantee, atomicity, ordering)
+      - Sections 8-10: Full traceability matrix, open decisions summary (5 decisions requiring resolution), and complete field mapping appendix
+    
+    ✻ Sautéed for 2m 13s                                                                                                                        
+      
+    ● How is Claude doing this session? (optional)                                                                                              
+      1: Bad    2: Fine   3: Good   0: Dismiss
 
 
 
