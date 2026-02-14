@@ -1,0 +1,1254 @@
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+
+
+AI session
+Feb 12
+using Chat GPT web, because I didn't want to burn up all my paid tokens with Claude
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+
+
+
+PROMPT
+
+    I am looking to use agentic AI to re-write ETL code that I lost when my hard drive failed. I have several days of 
+    input data and I have the ETL output from those days when the application ran. I would want the AI to infer business
+    requirements based on those input and output files, and first write those business requirements. I would then like
+    to feed the input, output, and business requirements back into a separate AI session and have it write test cases.
+    I would then like to feed input, output, business requirements, and test cases into yet another AI session and 
+    have it write functional specifications. Finally, I would provide input, output, business requirements, test 
+    cases, and functional specifications, to a separate AI session and have it write the code for a command-line ETL
+    execution in C# .Net 8. Given all of that, please help me write a series of prompts for those agentic AI sessions to 
+    accomplish my goals. 
+
+RESPONSE
+
+    This is a great use case for agentic AI — you’re essentially reconstructing intent → validation → design → 
+    implementation from artifacts. The key is to:
+        • tightly constrain each agent’s role,
+        • prevent premature coding,
+        • force explicit reasoning and traceability,
+        • require structured outputs that feed the next stage.
+    Below is a 4-stage prompt framework you can reuse. Each prompt is written so you can paste it into a fresh AI 
+    session and attach your files. I’ve included:
+        • role framing (what the agent is)
+        • mission
+        • rules
+        • required output structure
+        • guardrails against hallucination
+        • traceability requirements
+    
+    ✅ Stage 1 — Infer Business Requirements from ETL Artifacts
+    Prompt: Business Requirements Reconstruction Agent
+    Paste this into Session 1:
+    
+    You are an ETL reverse-engineering analyst. Your job is to infer the business requirements of a lost ETL pipeline 
+    using only the provided input datasets and the resulting output datasets.
+    Mission
+    Analyze the input and output data and reconstruct the business intent behind the transformation. You are NOT writing 
+    code or implementation details. You are discovering:
+        • transformation rules
+        • business logic
+        • validation behavior
+        • data mapping intent
+        • aggregation or filtering logic
+        • assumptions implied by outputs
+    Constraints
+        • Only infer requirements supported by observable evidence in the data
+        • Do not invent business context
+        • Clearly mark uncertainty levels
+        • If multiple interpretations are possible, list alternatives
+        • No implementation details
+        • No technology assumptions
+    Analysis Tasks
+        1. Schema comparison (input vs output)
+        2. Field lineage mapping
+        3. Transformation pattern detection
+        4. Filtering/aggregation detection
+        5. Derived field logic inference
+        6. Edge case behavior inference
+        7. Data quality rules inference
+    Required Output Structure
+    Executive Summary
+    High-level description of what the ETL appears to accomplish.
+    Observed Transformations
+    For each transformation:
+        • Input fields involved
+        • Output field
+        • Observed pattern
+        • Likely rule
+        • Confidence level (High / Medium / Low)
+        • Supporting evidence
+    Inferred Business Rules
+    Numbered list of business requirements with:
+        • Rule description
+        • Evidence reference
+        • Confidence rating
+    Data Validation & Constraints
+    Observed implied rules (formatting, filtering, deduplication, etc.).
+    Ambiguities & Hypotheses
+    List uncertain interpretations and alternative explanations.
+    Traceability Matrix
+    Table linking:
+    Input Field → Output Field → Inferred Rule → Evidence
+    Deliverable Goal
+    Produce a clear, structured specification of inferred business requirements that another agent can use to generate 
+    test cases.
+    
+    
+    ✅ Stage 2 — Generate Test Cases
+    Prompt: ETL Test Design Agent
+    Paste into Session 2 along with Stage 1 output:
+    
+    You are a data transformation test architect. Using the provided ETL input/output artifacts and inferred business 
+    requirements, your task is to design comprehensive test cases validating the transformation logic.
+    Mission
+    Design tests that verify:
+        • correctness
+        • edge conditions
+        • rule compliance
+        • error handling
+        • boundary behavior
+    Constraints
+        • Tests must directly map to inferred business rules
+        • No new logic assumptions
+        • Clearly identify coverage gaps
+        • Include positive and negative cases
+    Analysis Tasks
+        1. Map each business rule to test coverage
+        2. Identify normal cases
+        3. Identify boundary cases
+        4. Identify failure scenarios
+        5. Identify ambiguous logic needing validation
+    Required Output Structure
+    Test Strategy Overview
+    Rule-to-Test Coverage Matrix
+    Business Rule → Test Case IDs
+    Detailed Test Cases
+    For each test:
+        • Test ID
+        • Purpose
+        • Input data scenario
+        • Expected output behavior
+        • Validation criteria
+        • Covered rule(s)
+    Edge & Failure Tests
+    Coverage Gaps & Assumptions
+    Deliverable Goal
+    Produce test documentation that allows validation of the ETL logic independent of implementation.
+    
+    
+    ✅ Stage 3 — Functional Specification Generation
+    Prompt: ETL Functional Specification Agent
+    Paste into Session 3 with prior outputs:
+    
+    You are a functional systems analyst responsible for producing a formal ETL functional specification based on 
+    inferred business requirements and test cases.
+    Mission
+    Translate business intent into implementation-neutral functional behavior documentation.
+    Constraints
+        • No coding details
+        • No framework assumptions
+        • Behavior-focused specification
+        • Fully traceable to rules and tests
+    Analysis Tasks
+        1. Consolidate transformation behavior
+        2. Define processing flow
+        3. Specify data handling behavior
+        4. Define validation logic
+        5. Clarify error handling
+        6. Define execution expectations
+    Required Output Structure
+    System Overview
+    Functional Processing Flow
+    Step-by-step ETL behavior description.
+    Data Transformation Specifications
+    For each transformation:
+        • Input definition
+        • Output definition
+        • Functional behavior
+        • Constraints
+        • Validation rules
+    Error Handling Behavior
+    Execution Behavior
+    Traceability Matrix
+    Requirement → Functional Behavior → Test Case
+    Deliverable Goal
+    Produce a formal specification usable by a developer to implement the ETL.
+    
+    
+    ✅ Stage 4 — ETL Code Generation (.NET 8 C#)
+    Prompt: ETL Implementation Agent
+    Paste into Session 4 with all artifacts:
+    
+    You are a senior ETL software engineer implementing a command-line ETL pipeline in C# .NET 8 based strictly on the 
+    provided functional specification, business rules, and test cases.
+    Mission
+    Implement a deterministic ETL pipeline that matches the documented behavior exactly.
+    Constraints
+        • No deviation from specifications
+        • Explicit mapping between code and rules
+        • Readable, modular architecture
+        • Testable components
+        • Deterministic output
+        • No hidden assumptions
+    Implementation Requirements
+        • Command-line execution
+        • Input/output file handling
+        • Structured transformation pipeline
+        • Validation layer
+        • Error reporting
+        • Logging hooks
+        • Separation of concerns
+    Required Output Structure
+    Architecture Overview
+    Component Breakdown
+    Full C# Implementation
+        • Main execution entry
+        • Transformation engine
+        • Validation module
+        • Data models
+        • Utilities
+    Inline Rule Traceability Comments
+    Each transformation section must reference:
+    // Implements Business Rule X
+    Execution Instructions
+    Deliverable Goal
+    Provide production-quality ETL code matching the specification with clear traceability.
+    
+    
+    💡 Optional Enhancements (Highly Recommended)
+    You may also add:
+    Consistency Guardrail (add to every prompt)
+    If evidence is insufficient, explicitly state uncertainty rather than guessing.
+    Self-Verification Step
+    Before finalizing output, review for unsupported assumptions.
+    
+    If you want, I can next show you:
+    ✅ A master orchestration workflow
+    ✅ Prompt chaining automation strategy
+    ✅ Artifact formatting templates
+    ✅ Validation loops between agents
+    ✅ Data diff analysis techniques
+    ✅ Example datasets walkthrough
+    ✅ CI-style ETL verification pipeline
+    ✅ How to run this with local agent frameworks
+    Just say what you want next.
+
+************************************************************************************************************************
+
+
+
+PROMPT
+
+
+    please create 15 rows of fictional test data in a CSV format that has the columns of Id Prefix FirstName LastName
+    SortName Suffix Birthdate
+
+
+
+RESPONSE
+    Here’s a small fictional dataset with 15 rows in CSV format. Birthdates use ISO format (YYYY-MM-DD) for consistency.
+    Id,Prefix,FirstName,LastName,SortName,Suffix,Birthdate
+    1001,Mr.,Ethan,Carter,Carter Ethan,,1985-03-12
+    1002,Ms.,Olivia,Bennett,Bennett Olivia,,1990-07-25
+    1003,Dr.,Liam,Patel,Patel Liam,PhD,1978-11-02
+    1004,Mrs.,Sophia,Reynolds,Reynolds Sophia,,1988-05-19
+    1005,Mr.,Noah,Kim,Kim Noah,Jr.,1995-09-30
+    1006,Ms.,Ava,Garcia,Garcia Ava,,1992-01-14
+    1007,Dr.,Mason,Nguyen,Nguyen Mason,MD,1980-06-08
+    1008,Mr.,Lucas,Turner,Turner Lucas,,1987-12-22
+    1009,Mx.,Harper,Collins,Collins Harper,,1998-04-03
+    1010,Ms.,Isabella,Lopez,Lopez Isabella,,1993-10-17
+    1011,Mr.,James,O’Connor,O’Connor James,Sr.,1975-02-27
+    1012,Dr.,Amelia,Chow,Chow Amelia,PhD,1983-08-11
+    1013,Mr.,Benjamin,Rossi,Rossi Benjamin,,1991-03-05
+    1014,Ms.,Mia,Peterson,Peterson Mia,,1996-07-29
+    1015,Prof.,Elijah,Das,Das Elijah,,1972-11-15
+    If you want, I can generate variants like:
+    ✅ Edge-case names (hyphens, spaces, accents)
+    ✅ Invalid/messy data for testing
+    ✅ Larger dataset
+    ✅ Different date formats
+    ✅ Duplicate or missing fields
+    ✅ Sorting edge cases
+    Just say what you want next.
+*****************************************************************************
+
+PROMPT
+
+    Add a few more rows that introduce the edge cases for hyphens, spaces, accents. Also introduce edge cases for 
+    sorting. Also allow for prefix and suffix to be null.
+
+RESPONSE
+
+    Got you — we’ll append additional rows that deliberately exercise:
+        • hyphenated first/last names
+        • multi-word surnames
+        • prefixes/suffixes left empty
+        • accented characters
+        • apostrophes
+        • tricky alphabetical sorting cases (Mc/Mac, van/de la, spaces, punctuation)
+    I’ll include the full CSV (original 15 + 8 new edge-case rows) so you can paste directly into a file. Empty 
+    prefix/suffix fields are represented as blank values.
+    Id,Prefix,FirstName,LastName,SortName,Suffix,Birthdate
+    1001,Mr.,Ethan,Carter,Carter Ethan,,1985-03-12
+    1002,Ms.,Olivia,Bennett,Bennett Olivia,,1990-07-25
+    1003,Dr.,Liam,Patel,Patel Liam,PhD,1978-11-02
+    1004,Mrs.,Sophia,Reynolds,Reynolds Sophia,,1988-05-19
+    1005,Mr.,Noah,Kim,Kim Noah,Jr.,1995-09-30
+    1006,Ms.,Ava,Garcia,Garcia Ava,,1992-01-14
+    1007,Dr.,Mason,Nguyen,Nguyen Mason,MD,1980-06-08
+    1008,Mr.,Lucas,Turner,Turner Lucas,,1987-12-22
+    1009,Mx.,Harper,Collins,Collins Harper,,1998-04-03
+    1010,Ms.,Isabella,Lopez,Lopez Isabella,,1993-10-17
+    1011,Mr.,James,O’Connor,O’Connor James,Sr.,1975-02-27
+    1012,Dr.,Amelia,Chow,Chow Amelia,PhD,1983-08-11
+    1013,Mr.,Benjamin,Rossi,Rossi Benjamin,,1991-03-05
+    1014,Ms.,Mia,Peterson,Peterson Mia,,1996-07-29
+    1015,Prof.,Elijah,Das,Das Elijah,,1972-11-15
+    1016,,Jean-Luc,Pierre-Louis,Pierre-Louis Jean-Luc,,1989-06-21
+    1017,Ms.,Ana María,de la Cruz,de la Cruz Ana María,,1994-02-10
+    1018,,Chloé,D’Amico,D’Amico Chloé,,1997-09-03
+    1019,Mr.,Karl,van der Meer,van der Meer Karl,,1982-12-18
+    1020,,Zoë,Ångström,Ångström Zoë,,1999-05-27
+    1021,Dr.,Mary-Kate,McAllister,McAllister Mary-Kate,III,1979-03-14
+    1022,,Sean,MacDonald,MacDonald Sean,,1986-07-09
+    1023,Mx.,Luis Ángel,García-López,García-López Luis Ángel,,1993-11-30
+    If you want, I can next generate:
+    ✅ Null/missing birthdates
+    ✅ Duplicate IDs or names
+    ✅ Case-sensitivity edge cases
+    ✅ Unicode stress-test data
+    ✅ Sorting torture-test dataset
+    ✅ Invalid CSV formatting scenarios
+    ✅ Large randomized dataset
+    Just say what you want next.
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+    Given the above fictional customer data set, please create a fictional Addresses table that supports US and 
+    Canadian addresses. All for a customer to have multiple addresses at any given time, but also all for the table to 
+    represent start and end dates for a customer for any given address. Make sure that the "current" state of customer 
+    addresses has a 50/50 mix of US and Canadian addresses
+
+
+RESPONSE
+
+    Great — we’ll design an Addresses table that supports:
+    ✅ Multiple addresses per customer
+    ✅ Historical tracking via start/end dates
+    ✅ US + Canadian formats
+    ✅ Clear “current” address rows (blank EndDate)
+    ✅ Exactly 24 current addresses → 12 US + 12 Canada
+    ✅ Some historical rows to demonstrate lifecycle behavior
+    Schema used
+    AddressId — unique row id
+    CustomerId — links to your fictional customer Id
+    AddressLine1
+    City
+    StateProvince — US state or Canadian province
+    PostalCode — ZIP or Canadian postal format
+    Country — US or CA
+    StartDate — when address became active
+    EndDate — blank = current
+    Rule: A blank EndDate means the address is currently active.
+    
+    Fictional Addresses CSV
+    AddressId,CustomerId,AddressLine1,City,StateProvince,PostalCode,Country,StartDate,EndDate
+    2001,1001,1452 Oak Street,Columbus,OH,43215,US,2023-01-01,
+    2002,1002,88 Lake Shore Dr,Chicago,IL,60601,US,2022-06-15,
+    2003,1003,742 Evergreen Terrace,Springfield,IL,62704,US,2021-09-10,
+    2004,1004,19 Market Street,San Francisco,CA,94105,US,2023-03-22,
+    2005,1005,500 Pine Ave,Seattle,WA,98101,US,2022-11-05,
+    2006,1006,77 River Road,Austin,TX,73301,US,2023-07-18,
+    2007,1007,12 Hillcrest Blvd,Denver,CO,80202,US,2021-04-09,
+    2008,1008,900 Broadway,New York,NY,10003,US,2023-02-01,
+    2009,1009,455 Desert Lane,Phoenix,AZ,85004,US,2022-08-30,
+    2010,1010,321 Harbor Way,San Diego,CA,92101,US,2023-05-12,
+    2011,1011,88 Peachtree St,Atlanta,GA,30303,US,2021-12-20,
+    2012,1012,600 Main Street,Kansas City,MO,64105,US,2022-10-01,
+    
+    2013,1013,1200 Rue Sainte-Catherine,Montreal,QC,H3B 1K9,CA,2023-01-10,
+    2014,1014,75 King Street,Toronto,ON,M5H 1J9,CA,2022-05-02,
+    2015,1015,44 Jasper Ave,Edmonton,AB,T5J 3R7,CA,2021-09-18,
+    2016,1016,200 Granville St,Vancouver,BC,V6C 1S4,CA,2023-06-01,
+    2017,1017,18 Portage Ave,Winnipeg,MB,R3C 0B1,CA,2022-07-11,
+    2018,1018,90 Barrington St,Halifax,NS,B3J 1Z4,CA,2023-04-15,
+    2019,1019,10 Queen Square,Fredericton,NB,E3B 1B2,CA,2021-11-03,
+    2020,1020,55 Water Street,St. John’s,NL,A1C 1A1,CA,2022-02-25,
+    2021,1021,300 Victoria Ave,Regina,SK,S4P 0S4,CA,2023-03-08,
+    2022,1022,88 College Street,Toronto,ON,M5G 1L4,CA,2022-09-14,
+    2023,1023,15 2nd Ave,Whitehorse,YT,Y1A 1B2,CA,2023-05-20,
+    2024,1013,250 Rideau Street,Ottawa,ON,K1N 5Y1,CA,2023-08-01,
+    
+    2030,1001,9 Old Farm Road,Dayton,OH,45402,US,2019-01-01,2022-12-31
+    2031,1002,14 Cedar Lane,Chicago,IL,60605,US,2018-03-10,2022-06-14
+    2032,1003,22 Maple Ave,Springfield,IL,62701,US,2017-07-01,2021-09-09
+    2033,1004,800 Mission St,San Francisco,CA,94103,US,2020-05-05,2023-03-21
+    2034,1015,77 Whyte Ave,Edmonton,AB,T6E 1Z9,CA,2018-02-01,2021-09-17
+    2035,1017,5 Main Street,Winnipeg,MB,R3C 1A1,CA,2019-06-12,2022-07-10
+    
+    Validation Summary
+    Current addresses (EndDate blank):
+        • US: 12 rows
+        • Canada: 12 rows
+    Historical rows demonstrate:
+        • address replacement
+        • lifecycle tracking
+        • mixed-country history
+    
+    If you want, I can generate next:
+    ✅ Address validation edge cases
+    ✅ Overlapping date scenarios (bad data tests)
+    ✅ Customers with 3–5 address histories
+    ✅ International expansion schema
+    ✅ Normalized relational model version
+    ✅ ETL-ready staging dataset
+    ✅ Referential integrity test cases
+    ✅ Address deduplication scenarios
+    Just say what you want next.
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+    please create a create table sql statement that will run in postgresql for the customer and address tables. Include 
+    inserts and foreign key constraints
+
+    Got it — I’ll give you a PostgreSQL-ready script that includes:
+    ✅ Customer table
+    ✅ Address table
+    ✅ Proper datatypes
+    ✅ Primary keys
+    ✅ Foreign key constraint
+    ✅ Date range support
+    ✅ Inserts for all rows from the datasets
+    ✅ Safe ordering (customers first → addresses)
+    I’ll keep it clean and runnable as a single script.
+    
+    PostgreSQL Schema + Seed Data Script
+    -- =========================
+    -- CUSTOMER TABLE
+    -- =========================
+    
+    DROP TABLE IF EXISTS addresses;
+    DROP TABLE IF EXISTS customers;
+    
+    CREATE TABLE customers (
+        id              INTEGER PRIMARY KEY,
+        prefix          VARCHAR(10),
+        first_name      VARCHAR(100) NOT NULL,
+        last_name       VARCHAR(100) NOT NULL,
+        sort_name       VARCHAR(200) NOT NULL,
+        suffix          VARCHAR(20),
+        birthdate       DATE NOT NULL
+    );
+    
+    -- =========================
+    -- ADDRESS TABLE
+    -- =========================
+    
+    CREATE TABLE addresses (
+        address_id      INTEGER PRIMARY KEY,
+        customer_id     INTEGER NOT NULL,
+        address_line1   VARCHAR(200) NOT NULL,
+        city            VARCHAR(100) NOT NULL,
+        state_province  VARCHAR(50) NOT NULL,
+        postal_code     VARCHAR(20) NOT NULL,
+        country         CHAR(2) NOT NULL CHECK (country IN ('US', 'CA')),
+        start_date      DATE NOT NULL,
+        end_date        DATE,
+    
+        CONSTRAINT fk_customer
+            FOREIGN KEY (customer_id)
+            REFERENCES customers(id)
+            ON DELETE CASCADE,
+    
+        CONSTRAINT chk_date_range
+            CHECK (end_date IS NULL OR end_date >= start_date)
+    );
+    
+    -- =========================
+    -- CUSTOMER INSERTS
+    -- =========================
+    
+    INSERT INTO customers VALUES
+    (1001,'Mr.','Ethan','Carter','Carter Ethan',NULL,'1985-03-12'),
+    (1002,'Ms.','Olivia','Bennett','Bennett Olivia',NULL,'1990-07-25'),
+    (1003,'Dr.','Liam','Patel','Patel Liam','PhD','1978-11-02'),
+    (1004,'Mrs.','Sophia','Reynolds','Reynolds Sophia',NULL,'1988-05-19'),
+    (1005,'Mr.','Noah','Kim','Kim Noah','Jr.','1995-09-30'),
+    (1006,'Ms.','Ava','Garcia','Garcia Ava',NULL,'1992-01-14'),
+    (1007,'Dr.','Mason','Nguyen','Nguyen Mason','MD','1980-06-08'),
+    (1008,'Mr.','Lucas','Turner','Turner Lucas',NULL,'1987-12-22'),
+    (1009,'Mx.','Harper','Collins','Collins Harper',NULL,'1998-04-03'),
+    (1010,'Ms.','Isabella','Lopez','Lopez Isabella',NULL,'1993-10-17'),
+    (1011,'Mr.','James','O’Connor','O’Connor James','Sr.','1975-02-27'),
+    (1012,'Dr.','Amelia','Chow','Chow Amelia','PhD','1983-08-11'),
+    (1013,'Mr.','Benjamin','Rossi','Rossi Benjamin',NULL,'1991-03-05'),
+    (1014,'Ms.','Mia','Peterson','Peterson Mia',NULL,'1996-07-29'),
+    (1015,'Prof.','Elijah','Das','Das Elijah',NULL,'1972-11-15'),
+    (1016,NULL,'Jean-Luc','Pierre-Louis','Pierre-Louis Jean-Luc',NULL,'1989-06-21'),
+    (1017,'Ms.','Ana María','de la Cruz','de la Cruz Ana María',NULL,'1994-02-10'),
+    (1018,NULL,'Chloé','D’Amico','D’Amico Chloé',NULL,'1997-09-03'),
+    (1019,'Mr.','Karl','van der Meer','van der Meer Karl',NULL,'1982-12-18'),
+    (1020,NULL,'Zoë','Ångström','Ångström Zoë',NULL,'1999-05-27'),
+    (1021,'Dr.','Mary-Kate','McAllister','McAllister Mary-Kate','III','1979-03-14'),
+    (1022,NULL,'Sean','MacDonald','MacDonald Sean',NULL,'1986-07-09'),
+    (1023,'Mx.','Luis Ángel','García-López','García-López Luis Ángel',NULL,'1993-11-30');
+    
+    -- =========================
+    -- ADDRESS INSERTS
+    -- =========================
+    
+    INSERT INTO addresses VALUES
+    (2001,1001,'1452 Oak Street','Columbus','OH','43215','US','2023-01-01',NULL),
+    (2002,1002,'88 Lake Shore Dr','Chicago','IL','60601','US','2022-06-15',NULL),
+    (2003,1003,'742 Evergreen Terrace','Springfield','IL','62704','US','2021-09-10',NULL),
+    (2004,1004,'19 Market Street','San Francisco','CA','94105','US','2023-03-22',NULL),
+    (2005,1005,'500 Pine Ave','Seattle','WA','98101','US','2022-11-05',NULL),
+    (2006,1006,'77 River Road','Austin','TX','73301','US','2023-07-18',NULL),
+    (2007,1007,'12 Hillcrest Blvd','Denver','CO','80202','US','2021-04-09',NULL),
+    (2008,1008,'900 Broadway','New York','NY','10003','US','2023-02-01',NULL),
+    (2009,1009,'455 Desert Lane','Phoenix','AZ','85004','US','2022-08-30',NULL),
+    (2010,1010,'321 Harbor Way','San Diego','CA','92101','US','2023-05-12',NULL),
+    (2011,1011,'88 Peachtree St','Atlanta','GA','30303','US','2021-12-20',NULL),
+    (2012,1012,'600 Main Street','Kansas City','MO','64105','US','2022-10-01',NULL),
+    
+    (2013,1013,'1200 Rue Sainte-Catherine','Montreal','QC','H3B 1K9','CA','2023-01-10',NULL),
+    (2014,1014,'75 King Street','Toronto','ON','M5H 1J9','CA','2022-05-02',NULL),
+    (2015,1015,'44 Jasper Ave','Edmonton','AB','T5J 3R7','CA','2021-09-18',NULL),
+    (2016,1016,'200 Granville St','Vancouver','BC','V6C 1S4','CA','2023-06-01',NULL),
+    (2017,1017,'18 Portage Ave','Winnipeg','MB','R3C 0B1','CA','2022-07-11',NULL),
+    (2018,1018,'90 Barrington St','Halifax','NS','B3J 1Z4','CA','2023-04-15',NULL),
+    (2019,1019,'10 Queen Square','Fredericton','NB','E3B 1B2','CA','2021-11-03',NULL),
+    (2020,1020,'55 Water Street','St. John’s','NL','A1C 1A1','CA','2022-02-25',NULL),
+    (2021,1021,'300 Victoria Ave','Regina','SK','S4P 0S4','CA','2023-03-08',NULL),
+    (2022,1022,'88 College Street','Toronto','ON','M5G 1L4','CA','2022-09-14',NULL),
+    (2023,1023,'15 2nd Ave','Whitehorse','YT','Y1A 1B2','CA','2023-05-20',NULL),
+    (2024,1013,'250 Rideau Street','Ottawa','ON','K1N 5Y1','CA','2023-08-01',NULL),
+    
+    (2030,1001,'9 Old Farm Road','Dayton','OH','45402','US','2019-01-01','2022-12-31'),
+    (2031,1002,'14 Cedar Lane','Chicago','IL','60605','US','2018-03-10','2022-06-14'),
+    (2032,1003,'22 Maple Ave','Springfield','IL','62701','US','2017-07-01','2021-09-09'),
+    (2033,1004,'800 Mission St','San Francisco','CA','94103','US','2020-05-05','2023-03-21'),
+    (2034,1015,'77 Whyte Ave','Edmonton','AB','T6E 1Z9','CA','2018-02-01','2021-09-17'),
+    (2035,1017,'5 Main Street','Winnipeg','MB','R3C 1A1','CA','2019-06-12','2022-07-10');
+    
+    If you want, I can next add:
+    ✅ Indexing strategy for ETL workloads
+    ✅ Temporal address constraints (no overlaps)
+    ✅ Sample queries (current address lookup)
+    ✅ Slowly Changing Dimension model
+    ✅ Address versioning triggers
+    ✅ Bulk import script
+    ✅ Data validation constraints
+    ✅ Test queries
+    Just tell me what you want next.
+
+
+************************************************************************************************************************
+
+PROMPT
+
+    Sorry, I need at least one customer to have previously lived in the US who now lives in Canada. I also need at least 
+    one customer who previously lived in canada who now lives in the US. Can you provide an updated series of SQL 
+    statements for that, please?
+
+
+RESPONSE
+
+    Ah — perfect catch. We just need to modify the address history so we explicitly demonstrate cross-country moves while preserving:
+    ✅ Valid temporal history
+    ✅ One current address per moving customer
+    ✅ Referential integrity
+    ✅ Same schema
+    We’ll implement:
+    👉 Customer 1001 — previously US → currently Canada
+    👉 Customer 1015 — previously Canada → currently US
+    Everything else remains valid.
+    Rather than resend the entire schema, here is a clean, runnable SQL block that:
+        • clears address data
+        • reinserts corrected address history
+        • preserves all constraints
+    You can run this directly after your tables + customers are already created.
+    
+    ✅ Updated Address Inserts (Cross-Country Moves Included)
+    -- Reset address data
+    DELETE FROM addresses;
+    
+    INSERT INTO addresses VALUES
+    -- =====================
+    -- US → CANADA MOVE
+    -- Customer 1001
+    -- =====================
+    (2001,1001,'1452 Oak Street','Columbus','OH','43215','US','2019-01-01','2022-12-31'),
+    (2002,1001,'250 Rideau Street','Ottawa','ON','K1N 5Y1','CA','2023-01-01',NULL),
+    
+    -- =====================
+    -- CANADA → US MOVE
+    -- Customer 1015
+    -- =====================
+    (2003,1015,'44 Jasper Ave','Edmonton','AB','T5J 3R7','CA','2018-02-01','2021-09-17'),
+    (2004,1015,'77 Whyte Ave','Seattle','WA','98101','US','2021-09-18',NULL),
+    
+    -- =====================
+    -- Remaining CURRENT US
+    -- =====================
+    (2010,1002,'88 Lake Shore Dr','Chicago','IL','60601','US','2022-06-15',NULL),
+    (2011,1003,'742 Evergreen Terrace','Springfield','IL','62704','US','2021-09-10',NULL),
+    (2012,1004,'19 Market Street','San Francisco','CA','94105','US','2023-03-22',NULL),
+    (2013,1005,'500 Pine Ave','Seattle','WA','98101','US','2022-11-05',NULL),
+    (2014,1006,'77 River Road','Austin','TX','73301','US','2023-07-18',NULL),
+    (2015,1007,'12 Hillcrest Blvd','Denver','CO','80202','US','2021-04-09',NULL),
+    (2016,1008,'900 Broadway','New York','NY','10003','US','2023-02-01',NULL),
+    (2017,1009,'455 Desert Lane','Phoenix','AZ','85004','US','2022-08-30',NULL),
+    (2018,1010,'321 Harbor Way','San Diego','CA','92101','US','2023-05-12',NULL),
+    (2019,1011,'88 Peachtree St','Atlanta','GA','30303','US','2021-12-20',NULL),
+    (2020,1012,'600 Main Street','Kansas City','MO','64105','US','2022-10-01',NULL),
+    
+    -- =====================
+    -- Remaining CURRENT CANADA
+    -- =====================
+    (2021,1013,'1200 Rue Sainte-Catherine','Montreal','QC','H3B 1K9','CA','2023-01-10',NULL),
+    (2022,1014,'75 King Street','Toronto','ON','M5H 1J9','CA','2022-05-02',NULL),
+    (2023,1016,'200 Granville St','Vancouver','BC','V6C 1S4','CA','2023-06-01',NULL),
+    (2024,1017,'18 Portage Ave','Winnipeg','MB','R3C 0B1','CA','2022-07-11',NULL),
+    (2025,1018,'90 Barrington St','Halifax','NS','B3J 1Z4','CA','2023-04-15',NULL),
+    (2026,1019,'10 Queen Square','Fredericton','NB','E3B 1B2','CA','2021-11-03',NULL),
+    (2027,1020,'55 Water Street','St. John’s','NL','A1C 1A1','CA','2022-02-25',NULL),
+    (2028,1021,'300 Victoria Ave','Regina','SK','S4P 0S4','CA','2023-03-08',NULL),
+    (2029,1022,'88 College Street','Toronto','ON','M5G 1L4','CA','2022-09-14',NULL),
+    (2030,1023,'15 2nd Ave','Whitehorse','YT','Y1A 1B2','CA','2023-05-20',NULL);
+    
+    ✅ What this now demonstrates
+    Customer 1001
+    US history → Canada current
+    Customer 1015
+    Canada history → US current
+    Both:
+    ✔ Clean date transitions
+    ✔ No overlaps
+    ✔ Valid FK references
+    ✔ Temporal correctness
+    
+    If you want, I can next add:
+    ✅ Temporal constraint to prevent overlapping addresses
+    ✅ Query to get current address per customer
+    ✅ Move-history analytics query
+    ✅ Slowly changing dimension pattern
+    ✅ Address change trigger
+    ✅ ETL validation queries
+    ✅ Referential integrity tests
+    ✅ Data warehouse modeling version
+    Just say what you want next.
+
+************************************************************************************************************************
+
+PROMPT
+
+    Thank you. Now I would like you to design and populate an accounts table for these customers. Each account should 
+    have a "type" of either "Checking", "Savings", or "Credit". Add in typical fields that a bank would need for 
+    checking, savings, or credit accounts. Do not add any information that would be included in typical PCI scans. 
+    Provide me with SQL statements to run in Postgres for the same customer IDs you created previously.
+
+RESPONSE
+
+    Perfect — this is a nice extension of the schema into something that looks like a real banking domain while staying
+    PCI-safe.
+    Design goals I followed:
+    ✅ Multiple account types per schema
+    ✅ Banking-realistic fields
+    ✅ No PCI data (no PAN, CVV, track data, etc.)
+    ✅ Referential integrity to customers
+    ✅ Constraints for data quality
+    ✅ PostgreSQL-native types
+    ✅ One account per customer (easy to extend later)
+    
+    🏦 Accounts Table Design (PCI-Safe)
+    We’ll support a single flexible table with type-specific nullable fields.
+    Common banking fields
+        • account status
+        • open date
+        • balance
+        • interest rate (checking/savings)
+        • credit limit + APR (credit)
+    No card numbers, security codes, or scan-sensitive fields.
+    
+    ✅ PostgreSQL Schema + Seed Data
+    Run this after your customer table exists.
+    
+    Create Accounts Table
+    DROP TABLE IF EXISTS accounts;
+    
+    CREATE TABLE accounts (
+        account_id        INTEGER PRIMARY KEY,
+        customer_id       INTEGER NOT NULL,
+        account_type      VARCHAR(10) NOT NULL
+            CHECK (account_type IN ('Checking', 'Savings', 'Credit')),
+    
+        account_status    VARCHAR(15) NOT NULL
+            CHECK (account_status IN ('Active', 'Frozen', 'Closed')),
+    
+        open_date         DATE NOT NULL,
+        current_balance   NUMERIC(12,2) NOT NULL DEFAULT 0,
+    
+        -- Checking / Savings fields
+        interest_rate     NUMERIC(5,2),
+    
+        -- Credit-specific fields
+        credit_limit      NUMERIC(12,2),
+        apr               NUMERIC(5,2),
+    
+        CONSTRAINT fk_account_customer
+            FOREIGN KEY (customer_id)
+            REFERENCES customers(id)
+            ON DELETE CASCADE,
+    
+        -- Logical consistency constraints
+        CONSTRAINT chk_interest_applicable
+            CHECK (
+                (account_type IN ('Checking','Savings'))
+                OR interest_rate IS NULL
+            ),
+    
+        CONSTRAINT chk_credit_fields
+            CHECK (
+                (account_type = 'Credit' AND credit_limit IS NOT NULL AND apr IS NOT NULL)
+                OR (account_type <> 'Credit')
+            )
+    );
+    
+    ✅ Account Inserts
+    We’ll distribute account types realistically:
+        • Checking → most common
+        • Savings → moderate
+        • Credit → some customers
+    INSERT INTO accounts VALUES
+    (3001,1001,'Checking','Active','2021-01-15',2450.32,0.10,NULL,NULL),
+    (3002,1002,'Savings','Active','2020-06-01',10875.55,2.25,NULL,NULL),
+    (3003,1003,'Credit','Active','2019-11-10',-820.40,NULL,5000,18.99),
+    (3004,1004,'Checking','Active','2022-03-22',1570.11,0.05,NULL,NULL),
+    (3005,1005,'Savings','Active','2021-08-30',5020.77,2.10,NULL,NULL),
+    (3006,1006,'Checking','Active','2023-01-18',330.45,0.05,NULL,NULL),
+    (3007,1007,'Credit','Active','2018-07-09',-1450.00,NULL,8000,16.50),
+    (3008,1008,'Checking','Active','2020-12-01',915.66,0.05,NULL,NULL),
+    (3009,1009,'Savings','Active','2022-05-14',7420.20,2.35,NULL,NULL),
+    (3010,1010,'Checking','Active','2021-04-12',210.88,0.05,NULL,NULL),
+    (3011,1011,'Credit','Active','2017-09-03',-275.99,NULL,3000,21.25),
+    (3012,1012,'Savings','Active','2020-02-28',15400.00,2.50,NULL,NULL),
+    (3013,1013,'Checking','Active','2023-01-10',680.12,0.05,NULL,NULL),
+    (3014,1014,'Savings','Active','2022-05-02',9200.50,2.30,NULL,NULL),
+    (3015,1015,'Credit','Active','2019-03-15',-1980.45,NULL,10000,15.75),
+    (3016,1016,'Checking','Active','2023-06-01',125.00,0.05,NULL,NULL),
+    (3017,1017,'Savings','Active','2021-07-11',5600.80,2.15,NULL,NULL),
+    (3018,1018,'Checking','Active','2023-04-15',980.34,0.05,NULL,NULL),
+    (3019,1019,'Credit','Active','2020-11-03',-620.12,NULL,4000,19.25),
+    (3020,1020,'Savings','Active','2022-02-25',11200.00,2.40,NULL,NULL),
+    (3021,1021,'Checking','Active','2023-03-08',455.67,0.05,NULL,NULL),
+    (3022,1022,'Savings','Active','2022-09-14',8700.33,2.20,NULL,NULL),
+    (3023,1023,'Checking','Active','2023-05-20',300.99,0.05,NULL,NULL);
+    
+    ✅ What This Supports
+    You now have:
+    ✔ Multi-account banking model
+    ✔ PCI-safe schema
+    ✔ Type-specific validation
+    ✔ Referential integrity
+    ✔ Realistic balances and rates
+    ✔ Extendable design
+    
+    If you want, I can add next:
+    ✅ Multiple accounts per customer dataset
+    ✅ Transaction ledger table
+    ✅ Overdraft modeling
+    ✅ Interest accrual simulation
+    ✅ Credit payment behavior
+    ✅ Fraud/anomaly test data
+    ✅ ETL test queries
+    ✅ Account lifecycle modeling
+    ✅ Regulatory audit schema
+    Just say what you want next.
+
+
+************************************************************************************************************************
+
+PROMPT
+
+    Now extend the schema to a transactions table. I would like debits and credits for all account types, for all 
+    customers, spanning the 1 week's worth of days. Provide the SQL statements for me to create and populate these 
+    tables using Postgres and ensure that the foreign keys align to the previously created customer and account tables.
+
+RESPONSE
+
+    Excellent — this is where your schema starts to look like a real banking ledger.
+    We’ll design a PCI-safe transaction ledger that supports:
+    ✅ All account types
+    ✅ Debit & credit entries
+    ✅ Referential integrity to accounts (and indirectly customers)
+    ✅ One week of activity
+    ✅ Realistic balances/flows
+    ✅ Audit-friendly structure
+    ✅ No PCI-sensitive fields
+    
+    🏦 Transactions Table Design
+    Key design principles
+    A banking ledger should:
+        • be append-only
+        • track transaction direction
+        • support auditing
+        • maintain traceability
+    We’ll model:
+    transaction_id — unique ledger entry
+    account_id — FK to accounts
+    txn_timestamp — when it occurred
+    txn_type — Debit or Credit
+    amount — positive numeric value
+    description — business-safe memo
+    Balance calculations happen downstream — we do not store running balances in the ledger.
+    
+    ✅ PostgreSQL Transactions Schema
+    Run after customers + accounts tables exist.
+    DROP TABLE IF EXISTS transactions;
+    
+    CREATE TABLE transactions (
+        transaction_id    INTEGER PRIMARY KEY,
+        account_id        INTEGER NOT NULL,
+        txn_timestamp     TIMESTAMP NOT NULL,
+        txn_type          VARCHAR(6) NOT NULL
+            CHECK (txn_type IN ('Debit','Credit')),
+        amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+        description       VARCHAR(255),
+    
+        CONSTRAINT fk_txn_account
+            FOREIGN KEY (account_id)
+            REFERENCES accounts(account_id)
+            ON DELETE CASCADE
+    );
+    
+    📅 One Week Transaction Dataset
+    We’ll simulate activity over:
+    2024-10-01 → 2024-10-07
+    Each account gets:
+        • deposits/payments (credits)
+        • purchases/transfers (debits)
+    Balances roughly match account type behavior:
+        • checking → frequent small transactions
+        • savings → occasional deposits
+        • credit → purchases + payments
+    
+    ✅ Transaction Inserts
+    (Each account gets 2 transactions = realistic weekly activity)
+    INSERT INTO transactions VALUES
+    -- Customer 1001
+    (4001,3001,'2024-10-01 09:12','Credit',500.00,'Deposit'),
+    (4002,3001,'2024-10-03 14:22','Debit',120.45,'Groceries'),
+    
+    -- 1002
+    (4003,3002,'2024-10-02 10:00','Credit',200.00,'Savings deposit'),
+    (4004,3002,'2024-10-06 16:44','Debit',50.00,'Transfer'),
+    
+    -- 1003
+    (4005,3003,'2024-10-01 13:11','Debit',220.00,'Retail purchase'),
+    (4006,3003,'2024-10-05 08:45','Credit',300.00,'Credit payment'),
+    
+    -- 1004
+    (4007,3004,'2024-10-03 09:55','Debit',45.80,'Coffee shop'),
+    (4008,3004,'2024-10-07 12:15','Credit',600.00,'Deposit'),
+    
+    -- 1005
+    (4009,3005,'2024-10-02 11:12','Credit',1000.00,'Savings deposit'),
+    (4010,3005,'2024-10-06 15:10','Debit',200.00,'Transfer'),
+    
+    -- 1006
+    (4011,3006,'2024-10-01 17:00','Debit',25.50,'Food'),
+    (4012,3006,'2024-10-05 09:20','Credit',300.00,'Deposit'),
+    
+    -- 1007
+    (4013,3007,'2024-10-02 14:01','Debit',500.00,'Online purchase'),
+    (4014,3007,'2024-10-07 08:00','Credit',450.00,'Credit payment'),
+    
+    -- 1008
+    (4015,3008,'2024-10-03 10:40','Debit',60.00,'Transit'),
+    (4016,3008,'2024-10-06 13:33','Credit',400.00,'Deposit'),
+    
+    -- 1009
+    (4017,3009,'2024-10-02 09:00','Credit',700.00,'Savings deposit'),
+    (4018,3009,'2024-10-05 11:25','Debit',150.00,'Transfer'),
+    
+    -- 1010
+    (4019,3010,'2024-10-01 16:15','Debit',90.25,'Utilities'),
+    (4020,3010,'2024-10-04 12:30','Credit',250.00,'Deposit'),
+    
+    -- 1011
+    (4021,3011,'2024-10-02 18:40','Debit',180.00,'Restaurant'),
+    (4022,3011,'2024-10-06 09:50','Credit',200.00,'Credit payment'),
+    
+    -- 1012
+    (4023,3012,'2024-10-01 10:05','Credit',1200.00,'Savings deposit'),
+    (4024,3012,'2024-10-07 14:10','Debit',300.00,'Transfer'),
+    
+    -- 1013
+    (4025,3013,'2024-10-03 09:00','Debit',75.00,'Fuel'),
+    (4026,3013,'2024-10-05 16:20','Credit',500.00,'Deposit'),
+    
+    -- 1014
+    (4027,3014,'2024-10-02 11:45','Credit',900.00,'Savings deposit'),
+    (4028,3014,'2024-10-06 10:10','Debit',100.00,'Transfer'),
+    
+    -- 1015
+    (4029,3015,'2024-10-01 13:30','Debit',350.00,'Retail'),
+    (4030,3015,'2024-10-07 09:00','Credit',600.00,'Credit payment'),
+    
+    -- 1016
+    (4031,3016,'2024-10-03 12:10','Debit',20.00,'Snack'),
+    (4032,3016,'2024-10-05 15:30','Credit',200.00,'Deposit'),
+    
+    -- 1017
+    (4033,3017,'2024-10-02 08:00','Credit',500.00,'Savings deposit'),
+    (4034,3017,'2024-10-06 18:00','Debit',75.00,'Transfer'),
+    
+    -- 1018
+    (4035,3018,'2024-10-04 09:40','Debit',55.00,'Taxi'),
+    (4036,3018,'2024-10-07 13:15','Credit',350.00,'Deposit'),
+    
+    -- 1019
+    (4037,3019,'2024-10-01 19:00','Debit',125.00,'Online purchase'),
+    (4038,3019,'2024-10-05 10:00','Credit',200.00,'Credit payment'),
+    
+    -- 1020
+    (4039,3020,'2024-10-02 12:25','Credit',800.00,'Savings deposit'),
+    (4040,3020,'2024-10-06 09:10','Debit',120.00,'Transfer'),
+    
+    -- 1021
+    (4041,3021,'2024-10-03 16:00','Debit',40.00,'Parking'),
+    (4042,3021,'2024-10-05 11:50','Credit',300.00,'Deposit'),
+    
+    -- 1022
+    (4043,3022,'2024-10-01 09:35','Credit',950.00,'Savings deposit'),
+    (4044,3022,'2024-10-06 17:00','Debit',150.00,'Transfer'),
+    
+    -- 1023
+    (4045,3023,'2024-10-04 08:20','Debit',60.00,'Groceries'),
+    (4046,3023,'2024-10-07 12:00','Credit',250.00,'Deposit');
+    
+    ✅ What You Now Have
+    A complete mini banking model:
+    Customers
+       ↓
+    Accounts
+       ↓
+    Transactions (ledger)
+    Supports:
+    ✔ Checking/Savings/Credit behavior
+    ✔ Weekly activity simulation
+    ✔ Debit/credit semantics
+    ✔ Auditable ledger
+    ✔ PCI-safe design
+    ✔ Referential integrity
+    
+    If you want, I can build next:
+    ✅ Running balance calculation query
+    ✅ Monthly statements query
+    ✅ Fraud/anomaly dataset
+    ✅ Interest accrual simulation
+    ✅ Ledger audit queries
+    ✅ ETL reconciliation examples
+    ✅ Temporal transaction analysis
+    ✅ Double-entry accounting model
+    ✅ Transaction rollback simulation
+    Just say what you want next.
+
+************************************************************************************************************************
+
+PROMPT
+
+    This is fantastic. The final thing I would like you to do is to create an SQL query that would give me all 
+    transactions for a customer who, at the time of the transaction, was living in the United States. Give me all 
+    details of the customer, the address at the time of the transaction, the account, and the transaction
+
+RESPONSE
+
+    Love this — this is a classic temporal join + dimensional lookup problem, and your schema is already well-suited for 
+    it.
+    We want:
+    All transactions where — at the moment the transaction occurred — the customer’s active address was in the United 
+    States
+    This requires joining:
+    customers → accounts → transactions
+    customers → addresses (temporal match)
+    The key logic is the date-effective address lookup:
+    A transaction belongs to an address if:
+    txn_date >= address.start_date
+    AND
+    txn_date <= address.end_date (or end_date is NULL)
+    We also filter:
+    address.country = 'US'
+    
+    ✅ SQL Query — US Residency at Time of Transaction
+    This query returns:
+    ✔ Full customer details
+    ✔ Address active at transaction time
+    ✔ Account details
+    ✔ Transaction details
+    SELECT
+        -- Customer
+        c.id                AS customer_id,
+        c.prefix,
+        c.first_name,
+        c.last_name,
+        c.sort_name,
+        c.suffix,
+        c.birthdate,
+    
+        -- Address active at transaction time
+        a.address_id,
+        a.address_line1,
+        a.city,
+        a.state_province,
+        a.postal_code,
+        a.country,
+        a.start_date        AS address_start,
+        a.end_date          AS address_end,
+    
+        -- Account
+        acc.account_id,
+        acc.account_type,
+        acc.account_status,
+        acc.open_date,
+        acc.current_balance,
+        acc.interest_rate,
+        acc.credit_limit,
+        acc.apr,
+    
+        -- Transaction
+        t.transaction_id,
+        t.txn_timestamp,
+        t.txn_type,
+        t.amount,
+        t.description
+    
+    FROM transactions t
+    JOIN accounts acc
+        ON t.account_id = acc.account_id
+    
+    JOIN customers c
+        ON acc.customer_id = c.id
+    
+    JOIN addresses a
+        ON a.customer_id = c.id
+       AND t.txn_timestamp::date >= a.start_date
+       AND (
+            a.end_date IS NULL
+            OR t.txn_timestamp::date <= a.end_date
+           )
+    
+    WHERE a.country = 'US'
+    
+    ORDER BY
+        c.id,
+        t.txn_timestamp;
+    
+    🔍 What This Query Guarantees
+    For every returned row:
+    ✅ The transaction belongs to the customer
+    ✅ The address was valid on that exact date
+    ✅ That address was US-based
+    ✅ No future/past address leakage
+    ✅ Works with historical moves
+    ✅ Handles NULL end dates correctly
+    
+    ⚡ Optional Performance Indexes (recommended)
+    If this were production-scale:
+    CREATE INDEX idx_txn_account_date
+    ON transactions(account_id, txn_timestamp);
+    
+    CREATE INDEX idx_address_temporal
+    ON addresses(customer_id, start_date, end_date);
+    
+    If you want, I can next show you:
+    ✅ Canadian residency version
+    ✅ Customers who moved countries mid-week
+    ✅ Running balance per transaction
+    ✅ Temporal anomaly detection
+    ✅ Point-in-time customer snapshot query
+    ✅ Monthly statement generator
+    ✅ ETL audit reconciliation query
+    ✅ Slowly changing dimension version
+    ✅ Window-function balance reconstruction
+    Just say what you want next — this dataset is perfect for advanced temporal analytics.
+
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+Non-AI session (becuase I used up all my free Chat GPT, but also because I don't want to give AI accesss to my database)
+Feb 14
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+
+I then ran the scripts to populate my initial test data into my postgres server. Next is manual effort to get data into 
+a better state.
+
+I wanted to create a customer / segment mapping as well. I did this because many of the ETL jobs have non-determinative
+logic that I wanted to replicate. Here, some customers are assigned to multiple segments. But my final output is going
+to only list 1 segment per customer. I am intentionally not going to provide a sort order in my fake output creation to
+see how Claude handles it.
+
+
+CREATE TABLE segments (
+    segment_id    INTEGER PRIMARY KEY,
+    segment_name          VARCHAR(255) NOT NULL,
+	segment_code	varchar(10) not null
+);
+
+insert into segments (segment_id, segment_name, segment_code) values (1, 'US retail banking', 'USRET');
+insert into segments (segment_id, segment_name, segment_code) values (2, 'Canadian retail banking', 'CANRET');
+insert into segments (segment_id, segment_name, segment_code) values (3, 'Affluent houshold', 'RICH');
+
+CREATE TABLE customers_segments (
+    id    INTEGER PRIMARY KEY,
+    customer_id          integer NOT NULL,
+	segment_id	integer not null,
+	CONSTRAINT fk_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES customers(id)
+        ON DELETE CASCADE,
+	CONSTRAINT fk_segment
+        FOREIGN KEY (segment_id)
+        REFERENCES segments(segment_id)
+        ON DELETE CASCADE
+);
+
+
+select *
+from customers c
+JOIN addresses a
+    ON a.customer_id = c.id
+where a.country = 'US'
+
+insert into customers_segments (id, customer_id, segment_id)
+select 
+30+(row_number() over (order by c.id)),
+c.id, 3
+from customers c
+JOIN addresses a
+    ON a.customer_id = c.id
+where mod(c.id,5) = 0
+
+select * from customers_segments where customer_id = 1015
+
+
+************************************************************************************************************************
+
+Next I needed to update a few of the address change dates to align with the logic run dates I want the ETL to run 
+against
+
+
+update public.addresses set end_date = '2024-10-02' where address_id = 2001;
+update public.addresses set start_date = '2024-10-02' where address_id = 2001;
+
+update public.addresses set end_date = '2024-10-04' where address_id = 2003;
+update public.addresses set start_date = '2024-10-05' where address_id = 2004;
+
+
+************************************************************************************************************************
+
+Now I want to create input file CSVs that would represent the state of the data for each logical day of 2024-10-01 
+through 2024-10-07
+
+addresses is mimicking a full load type sent to the SRZ
+set session vars.run_date = '2024-10-07';
+select 
+	address_id, 
+	customer_id, 
+	address_line1,
+	city, 
+	state_province, 
+	postal_code, 
+	country, 
+	start_date,
+	case when end_date > current_setting('vars.run_date')::date then null else end_date end as end_date
+from public.addresses 
+where start_date <= current_setting('vars.run_date')::date
+order by address_id;
+
+************************************************************************************************************************
+
+accounts is mimicking a full load. It also doesn’t have any data that changes in this fictional data set. but I’m 
+pretending that the file doesn’t come in on weekends and removed Oct 5 and 6 from the input set
+select * from public.accounts order by open_date
+
+************************************************************************************************************************
+
+customers gets the same treatment as accounts 
+select * from public.customers order by id
+
+************************************************************************************************************************
+
+customers_segments is full, arrives every day. It also doesn’t change day over day in our fake data
+
+select * from public.customers_segments
+
+************************************************************************************************************************
+
+segments is similar
+select * from public.segments
+
+************************************************************************************************************************
+
+the transactions extract only shows each day’s transactions for each logical date-effective
+set session vars.start_date = '2024-10-07 00:00';
+select 
+	transaction_id,
+	account_id,
+	txn_timestamp,
+	amount,
+	description
+from public.transactions
+where txn_timestamp >= current_setting('vars.start_date')::timestamp
+and txn_timestamp < current_setting('vars.start_date')::timestamp + interval '1 days'
+order by transaction_id;
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
+
+************************************************************************************************************************
+
