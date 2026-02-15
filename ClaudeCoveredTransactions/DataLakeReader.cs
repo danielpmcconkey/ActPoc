@@ -4,6 +4,23 @@ namespace ClaudeCoveredTransactions;
 
 public static class DataLakeReader
 {
+    // Implements Functional Spec Section 4.1 — Snapshot Resolution (BR-12, BR-17)
+    // Returns the resolved as_of date for a table: exact match first, then max(as_of) <= effectiveDate.
+    // Returns null if no snapshot exists at or before the effective date.
+    public static DateTime? ResolveSnapshotDate(string tableName, DateTime effectiveDate)
+    {
+        using var conn = DataAccessLayer.GetConnection();
+        conn.Open();
+        string q = $"SELECT MAX(as_of) FROM public.{tableName} WHERE as_of <= @EffectiveDate";
+        using var cmd = new NpgsqlCommand(q, conn);
+        cmd.Parameters.AddWithValue("@EffectiveDate", effectiveDate);
+        var result = cmd.ExecuteScalar();
+        if (result == null || result is DBNull)
+            return null;
+        var resultAsDate = (DateOnly)result;
+        return resultAsDate.ToDateTime((TimeOnly.Parse("00:00:00")));
+    }
+
     public static List<Account> GetAccountsByAsOf(DateTime asOf)
     {
         var connectionString = DataAccessLayer.GetConnectionString();

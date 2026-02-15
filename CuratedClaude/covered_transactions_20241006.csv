@@ -1,0 +1,4 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+4016,"2024-10-06 13:33:00","Credit","400.00","Deposit",1008,"Mr.","Lucas","Turner","Turner Lucas",NULL,"USRET",2016,"900 Broadway","New York","NY","10003","US",3008,"Checking","Active","2020-12-01"
+
+Expected records: 1

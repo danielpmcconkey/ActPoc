@@ -1,0 +1,630 @@
+Covered Transactions ETL — Functional Specification
+=====================================================
+Version: 1.0
+Status:  Final
+
+
+1. System Overview
+==================
+
+1.1 Purpose
+-----------
+
+The Covered Transactions ETL produces a daily denormalized CSV report of all Checking-account
+transactions for customers who hold an active US mailing address. Each transaction is enriched
+with customer demographics, address details, account metadata, and customer segment classification
+from six relational input tables.
+
+1.2 Invocation
+--------------
+
+The pipeline is invoked from the command line with two required arguments:
+
+    <program> <output-directory> <effective-date>
+
+    Argument 1: output-directory — Filesystem path where the output CSV file will be written.
+                Must be an existing, writable directory.
+    Argument 2: effective-date   — The processing date in YYYYMMDD format. Determines which
+                transactions are selected and which table snapshots are used.
+
+Example:
+
+    ClaudeCoveredTransactions /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/CuratedClaude 20241002
+
+1.3 Output
+----------
+
+A single CSV file per invocation:
+
+    <output-directory>/covered_transactions_<YYYYMMDD>.csv
+
+The file is always produced, even when zero records qualify.
+
+1.4 Scale Expectations
+----------------------
+
+The implementation must support production volumes using set-based operations:
+    - 5 million customers
+    - 10 million accounts
+    - 20 million daily transactions
+
+Row-by-row iteration is prohibited. All filtering, joining, and enrichment must be expressible
+as set operations (SQL joins, bulk transforms, etc.).
+
+
+2. Input Specification
+======================
+
+2.1 Input Tables
+----------------
+
+All input data resides in a PostgreSQL database, schema "public". Six tables are read:
+
+Table               | Join Role              | Snapshot Cadence
+--------------------|------------------------|----------------------------------
+transactions        | Fact table (driving)   | Daily (all calendar days)
+accounts            | Dimension (filter+enrich) | Weekday-only delivery
+customers           | Dimension (enrich)     | Weekday-only delivery
+addresses           | Dimension (filter+enrich) | Daily (all calendar days)
+customers_segments  | Bridge (enrich)        | Daily (all calendar days)
+segments            | Dimension (enrich)     | Daily (all calendar days)
+
+2.2 Table Schemas
+-----------------
+
+transactions:
+    transaction_id  INTEGER     (PK component)
+    account_id      INTEGER     (FK to accounts)
+    txn_timestamp   TIMESTAMP   (transaction datetime)
+    txn_type        VARCHAR     (e.g., "Debit", "Credit")
+    amount          DECIMAL     (transaction amount, 2 decimal places)
+    description     VARCHAR     (nullable)
+    as_of           DATE        (snapshot date, PK component)
+
+accounts:
+    account_id      INTEGER     (PK component)
+    customer_id     INTEGER     (FK to customers)
+    account_type    VARCHAR     (e.g., "Checking", "Savings", "Credit")
+    account_status  VARCHAR     (e.g., "Active", "Closed")
+    open_date       DATE
+    current_balance DECIMAL
+    interest_rate   DECIMAL     (nullable)
+    credit_limit    DECIMAL     (nullable)
+    apr             DECIMAL     (nullable)
+    as_of           DATE        (snapshot date, PK component)
+
+customers:
+    id              INTEGER     (PK component)
+    prefix          VARCHAR     (nullable)
+    first_name      VARCHAR
+    last_name       VARCHAR
+    sort_name       VARCHAR
+    suffix          VARCHAR     (nullable)
+    birthdate       DATE
+    as_of           DATE        (snapshot date, PK component)
+
+addresses:
+    address_id      INTEGER     (PK component)
+    customer_id     INTEGER     (FK to customers)
+    address_line1   VARCHAR
+    city            VARCHAR
+    state_province  VARCHAR
+    postal_code     VARCHAR
+    country         VARCHAR     (e.g., "US", "CA")
+    start_date      DATE
+    end_date        DATE        (nullable; NULL = address is open-ended/active)
+    as_of           DATE        (snapshot date, PK component)
+
+customers_segments:
+    id              INTEGER     (PK component)
+    customer_id     INTEGER     (FK to customers)
+    segment_id      INTEGER     (FK to segments)
+    as_of           DATE        (snapshot date, PK component)
+
+segments:
+    segment_id      INTEGER     (PK component)
+    segment_name    VARCHAR
+    segment_code    VARCHAR     (e.g., "USRET", "CANRET", "RICH")
+    as_of           DATE        (snapshot date, PK component)
+
+2.3 Snapshot Resolution
+-----------------------
+
+Each table's data is selected for a specific as_of date. The resolution strategy is:
+
+    1. Use the snapshot where as_of = effective_date if it exists.
+    2. If no rows exist for as_of = effective_date, use the most recent available snapshot:
+       max(as_of) WHERE as_of <= effective_date.
+
+This fallback is expected for the accounts and customers tables, which are delivered on
+weekdays only. Weekend effective dates will resolve to the preceding Friday's snapshot.
+
+All six tables use the same resolution logic. In practice, transactions, addresses,
+customers_segments, and segments are expected to have daily snapshots, but the fallback
+must still be applied consistently if a snapshot is missing.
+
+
+3. Output Specification
+=======================
+
+3.1 Output Schema
+-----------------
+
+22 fields per output record, in the following order:
+
+Pos | Output Field       | Source Table   | Source Field     | Type    | Notes
+----|--------------------|----------------|------------------|---------|---------------------------
+ 1  | transaction_id     | transactions   | transaction_id   | INTEGER | Unquoted
+ 2  | txn_timestamp      | transactions   | txn_timestamp    | TIMESTAMP | Quoted; YYYY-MM-DD HH:MM:SS
+ 3  | txn_type           | transactions   | txn_type         | VARCHAR | Quoted
+ 4  | amount             | transactions   | amount           | DECIMAL | Quoted; exactly 2 decimal places
+ 5  | description        | transactions   | description      | VARCHAR | Quoted; NULL -> unquoted NULL
+ 6  | customer_id        | accounts       | customer_id      | INTEGER | Unquoted
+ 7  | name_prefix        | customers      | prefix           | VARCHAR | Quoted; NULL -> unquoted NULL; RENAMED
+ 8  | first_name         | customers      | first_name       | VARCHAR | Quoted
+ 9  | last_name          | customers      | last_name        | VARCHAR | Quoted
+10  | sort_name          | customers      | sort_name        | VARCHAR | Quoted
+11  | name_suffix        | customers      | suffix           | VARCHAR | Quoted; NULL -> unquoted NULL; RENAMED
+12  | customer_segment   | segments       | segment_code     | VARCHAR | Quoted; via join; RENAMED; see 4.5
+13  | address_id         | addresses      | address_id       | INTEGER | Unquoted
+14  | address_line1      | addresses      | address_line1    | VARCHAR | Quoted
+15  | city               | addresses      | city             | VARCHAR | Quoted
+16  | state_province     | addresses      | state_province   | VARCHAR | Quoted
+17  | postal_code        | addresses      | postal_code      | VARCHAR | Quoted
+18  | country            | addresses      | country          | VARCHAR | Quoted
+19  | account_id         | accounts       | account_id       | INTEGER | Unquoted
+20  | account_type       | accounts       | account_type     | VARCHAR | Quoted
+21  | account_status     | accounts       | account_status   | VARCHAR | Quoted
+22  | account_opened     | accounts       | open_date        | DATE    | Quoted; YYYY-MM-DD; RENAMED
+
+Three fields are RENAMED from their source column names:
+    customers.prefix    -> name_prefix
+    customers.suffix    -> name_suffix
+    accounts.open_date  -> account_opened
+
+Fields EXCLUDED from output (present in input but not written):
+    accounts:   current_balance, interest_rate, credit_limit, apr
+    customers:  birthdate
+    addresses:  start_date, end_date
+    segments:   segment_id, segment_name
+    customers_segments: id, segment_id
+    All tables: as_of
+
+3.2 Output File Structure
+-------------------------
+
+Every output file has exactly this structure:
+
+    Line 1:     Header row — all 22 field names, each double-quoted, comma-separated
+    Lines 2..N: Data rows (zero or more), comma-separated, quoting per Section 3.3
+    Line N+1:   Blank line (empty)
+    Line N+2:   Footer — literal text: Expected records: <count>
+
+Where <count> is the number of data rows (N - 1, or 0 if no data rows).
+
+Example (2 data rows):
+
+    "transaction_id","txn_timestamp","txn_type",...,"account_opened"
+    5036,"2024-10-02 14:56:21","Debit",...,"2021-01-15"
+    5034,"2024-10-02 08:22:05","Debit",...,"2023-01-18"
+
+    Expected records: 2
+
+Example (0 data rows):
+
+    "transaction_id","txn_timestamp","txn_type",...,"account_opened"
+
+    Expected records: 0
+
+3.3 Quoting and Formatting Rules
+---------------------------------
+
+Quoting is determined by the database column type of the source field:
+
+    INTEGER columns:   Value is written unquoted.
+                       Output fields: transaction_id, customer_id, address_id, account_id
+
+    All other columns: Value is written enclosed in double quotes.
+                       Output fields: txn_timestamp, txn_type, amount, description, name_prefix,
+                       first_name, last_name, sort_name, name_suffix, customer_segment,
+                       address_line1, city, state_province, postal_code, country, account_type,
+                       account_status, account_opened
+
+    NULL values:       Regardless of source column type, NULL is written as the literal 4-character
+                       string NULL with no surrounding quotes.
+
+Additional formatting:
+    - amount: Always exactly 2 decimal places (e.g., "500.00", not "500" or "500.0")
+    - txn_timestamp: Format as "YYYY-MM-DD HH:MM:SS" (no timezone, no milliseconds)
+    - account_opened: Format as "YYYY-MM-DD"
+    - Header field names: Always double-quoted regardless of type
+
+3.4 Sort Order
+--------------
+
+Data rows are sorted by:
+    1. customer_id    ASCENDING  (primary)
+    2. transaction_id DESCENDING (secondary)
+
+
+4. Data Transformation Specifications
+======================================
+
+4.1 Step 1: Resolve Snapshots
+------------------------------
+
+For each of the six input tables, determine the as_of date to use:
+
+    Input:     effective_date (from command-line argument)
+    Behavior:  For each table, check whether any rows exist with as_of = effective_date.
+               If yes, use effective_date.
+               If no, find max(as_of) WHERE as_of <= effective_date and use that date.
+    Output:    Six resolved as_of dates (one per table), each <= effective_date.
+    Constraint: If no snapshot exists at or before effective_date for a required table,
+               this is an error condition (see Section 6.2).
+
+    Traced to: BR-12, BR-17
+    Tested by: TC-21, TC-22, TC-23, TC-35
+
+4.2 Step 2: Select Transactions
+---------------------------------
+
+    Input:     transactions table, resolved as_of for transactions
+    Behavior:  Select all rows WHERE transactions.as_of = resolved_transactions_as_of.
+    Output:    Candidate transaction set (all transactions for the effective date).
+    Constraint: If zero rows match, processing continues (produces a zero-record file).
+
+    Traced to: BR-2
+    Tested by: TC-01, TC-02, TC-03, TC-33
+
+4.3 Step 3: Join Accounts and Filter to Checking
+---------------------------------------------------
+
+    Input:     Candidate transaction set (from Step 2), accounts table at resolved as_of
+    Behavior:  Join transactions to accounts:
+                   transactions.account_id = accounts.account_id
+                   AND accounts.as_of = resolved_accounts_as_of
+               Then filter: retain only rows WHERE accounts.account_type = 'Checking'.
+    Output:    Checking-transaction set (transactions on Checking accounts only).
+    Constraint: account_status is NOT a filter. All account statuses (Active, Closed, etc.)
+               are retained. Transactions with no matching account row are silently excluded
+               (inner join behavior).
+
+    Traced to: BR-3
+    Tested by: TC-04, TC-05, TC-06, TC-07, TC-51
+
+4.4 Step 4: Join Addresses and Filter to Active US
+-----------------------------------------------------
+
+    Input:     Checking-transaction set (from Step 3), addresses table at resolved as_of
+    Behavior:  Join the Checking-transaction set to addresses:
+                   accounts.customer_id = addresses.customer_id
+                   AND addresses.as_of = resolved_addresses_as_of
+                   AND addresses.country = 'US'
+                   AND (addresses.end_date IS NULL OR addresses.end_date >= effective_date)
+
+               This join both FILTERS (only customers with an active US address qualify)
+               and ENRICHES (provides the address fields for the output).
+
+               If a customer has multiple active US addresses, select the one with the
+               earliest start_date (minimum start_date). If start_dates are equal, behavior
+               is undefined (but must not produce duplicate rows).
+
+    Output:    Covered-transaction set — transactions on Checking accounts for customers
+               with active US addresses, each associated with exactly one address.
+    Constraint: Customers with no active US address are excluded entirely (their transactions
+               do not appear). This is the primary business filter.
+               The join must not produce multiple output rows per transaction.
+
+    Traced to: BR-4, BR-5
+    Tested by: TC-08, TC-09, TC-10, TC-11, TC-12, TC-13, TC-14, TC-36, TC-37
+
+4.5 Step 5: Join Customers (Enrichment)
+-----------------------------------------
+
+    Input:     Covered-transaction set (from Step 4), customers table at resolved as_of
+    Behavior:  Join to customers:
+                   accounts.customer_id = customers.id
+                   AND customers.as_of = resolved_customers_as_of
+
+               Extract the following fields for output:
+                   customers.prefix    -> output as name_prefix
+                   customers.first_name
+                   customers.last_name
+                   customers.sort_name
+                   customers.suffix    -> output as name_suffix
+
+    Output:    Covered-transaction set enriched with customer name fields.
+    Constraint: Transactions with no matching customer row are silently excluded (inner join).
+               Fields NOT extracted: birthdate.
+
+    Traced to: BR-6 (join), BR-8 (renames), BR-10 (exclusions)
+    Tested by: TC-19, TC-20, TC-44
+
+4.6 Step 6: Join Segments (Enrichment + Deduplication)
+--------------------------------------------------------
+
+    Input:     Enriched set (from Step 5), customers_segments and segments tables at resolved as_of
+    Behavior:  For each customer, determine their customer_segment value:
+
+               a) Join customers_segments to segments:
+                      customers_segments.segment_id = segments.segment_id
+                      AND customers_segments.as_of = resolved_customers_segments_as_of
+                      AND segments.as_of = resolved_segments_as_of
+
+               b) Filter to the customer:
+                      customers_segments.customer_id = accounts.customer_id
+
+               c) Deduplicate: A customer may have multiple segment assignments, including
+                  duplicate entries for the same segment. The join must produce exactly ONE
+                  segment_code per customer.
+
+               d) Select: From the deduplicated set of distinct segment_codes for the customer,
+                  choose the FIRST segment_code in ascending alphabetical order.
+
+                  Example: Customer in segments CANRET, RICH, USRET -> select "CANRET".
+                  Example: Customer in segments RICH, USRET -> select "RICH".
+                  Example: Customer in segment USRET only -> select "USRET".
+
+               e) Output the selected segment_code as the customer_segment field.
+
+    Output:    Fully enriched transaction set with exactly one customer_segment per record.
+    Constraint: Duplicate segment assignments MUST NOT produce duplicate output rows.
+               Segment membership has NO bearing on filtering — it is enrichment only.
+               If a customer has no segment assignments, the transaction is excluded (inner
+               join on customers_segments). See Section 6.3 for discussion.
+
+    Traced to: BR-6, BR-7
+    Tested by: TC-15, TC-16, TC-17, TC-18, TC-35, TC-52
+
+4.7 Step 7: Project, Sort, and Write Output
+----------------------------------------------
+
+    Input:     Fully enriched transaction set (from Step 6)
+    Behavior:
+               a) PROJECT: Select exactly the 22 output fields in the order specified in
+                  Section 3.1. Discard all other fields.
+
+               b) SORT: Order records by customer_id ASC, transaction_id DESC.
+
+               c) WRITE: Produce the output file per the structure in Section 3.2:
+                  - Header row with all 22 field names double-quoted
+                  - Data rows with quoting per Section 3.3
+                  - Blank line
+                  - Footer: "Expected records: N" where N = number of data rows
+
+               d) FILE NAME: covered_transactions_<YYYYMMDD>.csv
+                  where YYYYMMDD is the effective_date argument.
+
+    Output:    One CSV file at the specified output directory.
+    Constraint: The file must be written atomically — if the process fails mid-write,
+               no partial file should remain.
+
+    Traced to: BR-13, BR-14, BR-15, BR-16
+    Tested by: TC-24, TC-25, TC-26, TC-27, TC-28, TC-29, TC-30, TC-31, TC-32, TC-33, TC-34,
+               TC-40, TC-41, TC-42, TC-43
+
+
+5. Processing Flow Diagram
+===========================
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                    COMMAND-LINE INVOCATION                       │
+    │              <output-dir>  <effective-date YYYYMMDD>             │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 0: INPUT VALIDATION                                        │
+    │  Validate arguments: 2 required, date format YYYYMMDD,           │
+    │  date is a real calendar date, output directory exists.           │
+    │  On failure: exit with error, no file produced.                  │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 1: RESOLVE SNAPSHOTS                                       │
+    │  For each of 6 tables, determine as_of date to use.             │
+    │  Fallback: max(as_of) <= effective_date.                         │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 2: SELECT TRANSACTIONS                                     │
+    │  WHERE transactions.as_of = resolved_as_of                       │
+    │  Result: 0..N candidate rows                                     │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 3: JOIN ACCOUNTS + FILTER CHECKING                         │
+    │  JOIN on account_id, filter account_type = 'Checking'            │
+    │  account_status is NOT filtered                                  │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 4: JOIN ADDRESSES + FILTER ACTIVE US                       │
+    │  JOIN on customer_id, country = 'US',                            │
+    │  end_date IS NULL OR end_date >= effective_date                   │
+    │  Tie-break multiple: earliest start_date                         │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 5: JOIN CUSTOMERS (enrichment)                             │
+    │  JOIN on customer_id = id, extract name fields                   │
+    │  Rename: prefix -> name_prefix, suffix -> name_suffix            │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 6: JOIN SEGMENTS (enrichment + dedup)                      │
+    │  JOIN customers_segments + segments on customer_id + segment_id  │
+    │  Deduplicate: one segment_code per customer (first alpha ASC)    │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Step 7: PROJECT + SORT + WRITE                                  │
+    │  Select 22 output fields, sort by customer_id ASC /              │
+    │  transaction_id DESC, write CSV with header + footer             │
+    └──────────────────────────────────────────────────────────────────┘
+
+
+6. Error Handling Behavior
+===========================
+
+6.1 Input Validation Errors
+----------------------------
+
+The following conditions must be detected before any database access occurs:
+
+Condition                          | Behavior
+-----------------------------------|----------------------------------------------
+No arguments provided              | Exit code != 0. Print usage message to stderr.
+Missing effective-date argument    | Exit code != 0. Print error referencing date.
+Output directory does not exist    | Exit code != 0. Print error referencing path.
+Effective date not 8 digits        | Exit code != 0. Print error referencing format.
+Effective date not YYYYMMDD format | Exit code != 0. Print error referencing format.
+Effective date is invalid calendar | Exit code != 0. Print error (e.g., Feb 30).
+  date (valid format, impossible   |
+  date)                            |
+
+No output file is produced on any input validation error.
+
+    Traced to: BR-1
+    Tested by: TC-45, TC-46, TC-47, TC-48, TC-49
+
+6.2 Database Errors
+--------------------
+
+Condition                          | Behavior
+-----------------------------------|----------------------------------------------
+Database connection failure        | Exit code != 0. Print connection error to stderr.
+                                   | No output file produced. No partial files left.
+No snapshot available for a        | Exit code != 0. Print error identifying the table
+  required table (no rows with     |   and the effective date. No output file produced.
+  as_of <= effective_date)         |
+
+    Tested by: TC-50
+
+6.3 Data Integrity Edge Cases
+------------------------------
+
+These are NOT errors — the pipeline handles them gracefully:
+
+Condition                          | Behavior
+-----------------------------------|----------------------------------------------
+Transaction references account_id  | Transaction silently excluded from output.
+  not in accounts table            |   Other records unaffected. (Inner join.)
+Customer has no address rows       | Customer's transactions excluded from output.
+Customer has no active US address  | Customer's transactions excluded from output.
+Customer has no segment assignment | Customer's transactions excluded from output.
+  (no rows in customers_segments)  |   (Inner join on segment enrichment.)
+Zero transactions qualify after    | Output file produced with header + blank line +
+  all filtering                    |   footer "Expected records: 0".
+Zero transactions exist for the   | Same as above.
+  effective date                   |
+
+    Tested by: TC-10, TC-11, TC-32, TC-33, TC-51, TC-52
+
+6.4 Atomicity Requirement
+--------------------------
+
+The output file must be written atomically. If the process fails during file writing
+(e.g., disk full, crash), no partial output file should remain in the output directory.
+The recommended approach is to write to a temporary file and rename on success, but the
+specific mechanism is an implementation choice.
+
+
+7. Execution Behavior
+======================
+
+7.1 Single-Date Processing
+----------------------------
+
+Each invocation processes exactly one effective date. There is no batch mode and no looping
+over date ranges. To process a range of dates, the caller invokes the program once per date.
+
+7.2 Idempotency
+-----------------
+
+Running the pipeline twice for the same effective date and output directory must produce
+the same output file. The second run overwrites the first. There are no sequence numbers,
+run IDs, or append semantics.
+
+7.3 Performance Requirements
+-----------------------------
+
+The implementation must operate in set-based fashion. Specifically:
+
+    - All filtering, joining, and enrichment must be expressed as bulk operations
+      (SQL joins, set operations, etc.) — NOT as row-by-row iteration loops.
+    - The pipeline must be capable of processing 20 million transactions joined against
+      10 million accounts and 5 million customers within a reasonable execution window.
+    - Memory usage should be proportional to the output size, not the full input size.
+
+7.4 Database Access
+--------------------
+
+The pipeline requires read-only access to the six input tables in the public schema.
+No writes, updates, or DDL operations are performed against the database.
+
+The connection details (host, port, database name, credentials) are implementation-specific
+and not part of this functional specification.
+
+
+8. Traceability Matrix
+=======================
+
+Business Rule | Functional Behavior (Section)       | Test Cases
+--------------|-------------------------------------|----------------------------------
+BR-1          | 1.2 Invocation; 6.1 Validation      | TC-34, TC-45, TC-46, TC-47, TC-48, TC-49
+BR-2          | 4.2 Select Transactions              | TC-01, TC-02, TC-03, TC-33
+BR-3          | 4.3 Join Accounts + Filter Checking   | TC-04, TC-05, TC-06, TC-07
+BR-4          | 4.4 Join Addresses + Filter Active US | TC-08, TC-09, TC-10, TC-11, TC-12, TC-36, TC-37
+BR-5          | 4.4 Address tie-breaking             | TC-13, TC-14
+BR-6          | 4.6 Join Segments                    | TC-15, TC-16, TC-52
+BR-7          | 4.6 Deduplication + Alpha selection  | TC-16, TC-17, TC-18
+BR-8          | 3.1 Output Schema (RENAMED fields)   | TC-19
+BR-9          | 3.1 Excluded fields (accounts)       | TC-20
+BR-10         | 3.1 Excluded fields (customers)      | TC-20
+BR-11         | 3.1 Excluded fields (addresses)      | TC-20
+BR-12         | 4.1 Resolve Snapshots                | TC-21, TC-22, TC-23
+BR-13         | 3.2 File Structure; 4.7 Write        | TC-24, TC-25, TC-26, TC-39
+BR-14         | 3.4 Sort Order; 4.7 Sort             | TC-27, TC-28, TC-38
+BR-15         | 3.3 Quoting (NULL handling)           | TC-29, TC-30, TC-31
+BR-16         | 3.2 Zero-record files; 4.7 Write     | TC-32, TC-33, TC-34
+BR-17         | 4.1 Resolve Snapshots (segments)      | TC-21, TC-35
+
+
+9. Known Deviations from Test Output
+======================================
+
+The following deviations from the provided test output files (in the Curated directory)
+are expected and intentional, based on stakeholder-confirmed business rules:
+
+9.1 Customer 1001 segment: CANRET vs USRET
+-------------------------------------------
+
+Customer 1001 belongs to segments CANRET and USRET. The original test output shows "USRET".
+The confirmed business rule (BR-7) specifies first alphabetically, which yields "CANRET".
+
+Affected files: covered_transactions_20241001.csv, covered_transactions_20241002.csv
+Affected field: customer_segment (position 12)
+All other fields and all other records are unaffected.
+
+When validating against the provided test output, this single field for customer 1001
+records should be expected to differ.
+
+
+10. Glossary
+=============
+
+Active address:     An address where end_date IS NULL or end_date >= effective_date.
+Effective date:     The processing date, determining which transactions and snapshots to use.
+Resolved as_of:     The actual as_of date used for a table after applying the fallback logic.
+Snapshot:           The set of all rows in a table sharing the same as_of value.
+Covered transaction: A transaction on a Checking account where the account holder has an
+                    active US address on the effective date.

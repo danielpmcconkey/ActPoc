@@ -1,0 +1,6 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+5041,"2024-10-04 12:42:55","Credit","920.00","Insurance claim payout",1004,"Mrs.","Sophia","Reynolds","Reynolds Sophia",NULL,"USRET",2012,"19 Market Street","San Francisco","CA","94105","US",3004,"Checking","Active","2022-03-22"
+5015,"2024-10-04 10:38:27","Debit","63.40","Office catering",1004,"Mrs.","Sophia","Reynolds","Reynolds Sophia",NULL,"USRET",2012,"19 Market Street","San Francisco","CA","94105","US",3004,"Checking","Active","2022-03-22"
+4020,"2024-10-04 12:30:00","Credit","250.00","Deposit",1010,"Ms.","Isabella","Lopez","Lopez Isabella",NULL,"RICH",2018,"321 Harbor Way","San Diego","CA","92101","US",3010,"Checking","Active","2021-04-12"
+
+Expected records: 3

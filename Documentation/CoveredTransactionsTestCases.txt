@@ -1,0 +1,649 @@
+Covered Transactions ETL — Test Case Specification
+====================================================
+
+
+Test Strategy Overview
+----------------------
+
+Tests are organized into five tiers:
+
+  Tier 1: Core Filtering Logic (TC-01 through TC-14)
+    Validates which transactions are included/excluded based on account type, address status,
+    and effective date matching. This is the highest-risk area.
+
+  Tier 2: Enrichment & Joins (TC-15 through TC-23)
+    Validates field mapping, segment resolution, snapshot fallback, and join correctness
+    across all six input tables.
+
+  Tier 3: Output Format & Structure (TC-24 through TC-32)
+    Validates file layout, quoting rules, sort order, NULL rendering, and footer accuracy.
+
+  Tier 4: Edge Cases & Boundaries (TC-33 through TC-44)
+    Validates behavior at the limits: zero records, missing data, duplicate segments,
+    multiple addresses, and special characters.
+
+  Tier 5: Error & Failure Scenarios (TC-45 through TC-52)
+    Validates input validation, missing arguments, and graceful handling of bad data.
+
+All test cases are implementation-independent and can be validated against any ETL engine
+producing the same output format.
+
+
+Rule-to-Test Coverage Matrix
+-----------------------------
+
+Business Rule | Test Case IDs                           | Coverage Notes
+--------------|-----------------------------------------|--------------------------------------------
+BR-1          | TC-45, TC-46, TC-47, TC-48              | Input validation and date parsing
+BR-2          | TC-01, TC-02, TC-03                     | Effective date filtering
+BR-3          | TC-04, TC-05, TC-06, TC-07              | Account type filter; status passthrough
+BR-4          | TC-08, TC-09, TC-10, TC-11, TC-12       | Active US address requirement
+BR-5          | TC-13, TC-14                            | Address selection and tie-breaking
+BR-6          | TC-15, TC-16                            | Segment code enrichment
+BR-7          | TC-16, TC-17, TC-18                     | Alphabetical segment; dedup
+BR-8          | TC-19                                   | Field renames
+BR-9          | TC-20                                   | Excluded account fields
+BR-10         | TC-20                                   | Excluded customer fields
+BR-11         | TC-20                                   | Excluded address fields
+BR-12         | TC-21, TC-22, TC-23                     | Snapshot fallback logic
+BR-13         | TC-24, TC-25, TC-26                     | File structure and footer
+BR-14         | TC-27, TC-28                            | Sort order
+BR-15         | TC-29, TC-30, TC-31                     | NULL rendering
+BR-16         | TC-32, TC-33, TC-34                     | Zero-record file production
+BR-17         | TC-21, TC-35                            | Segment/customer_segment snapshot resolution
+
+
+================================================================================
+TIER 1: CORE FILTERING LOGIC
+================================================================================
+
+TC-01: Transactions filtered to effective date only
+----------------------------------------------------------------------
+Purpose:       Verify only transactions with as_of = effective date appear in output
+Input:         Effective date = 20241001. Database has transactions for Oct 1-7.
+Expected:      Output contains only the 15 transactions where as_of = 2024-10-01.
+               No transaction from any other date appears.
+Validation:    Every output record's txn_timestamp starts with "2024-10-01".
+               Output file is named covered_transactions_20241001.csv.
+Covered rules: BR-2
+
+TC-02: Transactions from other dates are excluded
+----------------------------------------------------------------------
+Purpose:       Negative test — confirm transactions from adjacent dates do not leak in
+Input:         Effective date = 20241003. Transaction 5036 (as_of Oct 2) and transaction
+               4020 (as_of Oct 4) both exist in the database.
+Expected:      Neither 5036 nor 4020 appears in the Oct 3 output.
+Validation:    Search output for transaction_ids known to belong to Oct 2 and Oct 4;
+               none should be found.
+Covered rules: BR-2
+
+TC-03: Effective date with many transactions — verify completeness
+----------------------------------------------------------------------
+Purpose:       Confirm all qualifying transactions for a busy day are present
+Input:         Effective date = 20241001 (15 total transactions, 6 qualifying).
+Expected:      Output contains exactly 6 records: txns 5001, 4001, 5031, 4011, 5032, 4019.
+               Footer shows "Expected records: 6".
+Validation:    Count data rows = 6. All 6 transaction_ids present.
+Covered rules: BR-2, BR-3, BR-4
+
+TC-04: Savings account transactions excluded
+----------------------------------------------------------------------
+Purpose:       Verify transactions on Savings accounts are filtered out
+Input:         Effective date = 20241001. Transaction 5002 (account 3005, Savings, customer
+               1005 with US address) exists.
+Expected:      Transaction 5002 does NOT appear in output despite customer having a US address.
+Validation:    Search output for transaction_id 5002; not found.
+Covered rules: BR-3
+
+TC-05: Credit account transactions excluded
+----------------------------------------------------------------------
+Purpose:       Verify transactions on Credit accounts are filtered out
+Input:         Effective date = 20241001. Transaction 4005 (account 3003, Credit, customer
+               1003 with US address) exists.
+Expected:      Transaction 4005 does NOT appear in output.
+Validation:    Search output for transaction_id 4005; not found.
+Covered rules: BR-3
+
+TC-06: Only Checking accounts pass filter — comprehensive check
+----------------------------------------------------------------------
+Purpose:       Verify across all account types that ONLY Checking survives
+Input:         Effective date = 20241001. Accounts include:
+               Checking: 3001, 3004, 3006, 3008, 3010, 3013, 3016, 3018, 3021, 3023
+               Savings:  3002, 3005, 3009, 3012, 3014, 3017, 3020, 3022
+               Credit:   3003, 3007, 3011, 3015, 3019
+Expected:      Output contains ONLY account_ids from the Checking set. Every output row's
+               account_type field = "Checking".
+Validation:    Extract all distinct account_type values from output; only "Checking" exists.
+Covered rules: BR-3
+
+TC-07: account_status is NOT a filter — Closed status passthrough
+----------------------------------------------------------------------
+Purpose:       Verify that a Checking account with status other than "Active" is still included
+Input:         Synthetic data: Customer with Checking account, account_status = "Closed",
+               active US address, and a transaction on the effective date.
+Expected:      Transaction appears in output. account_status field shows "Closed".
+Validation:    Output row present with account_status = "Closed".
+Covered rules: BR-3 (account_status not a filter)
+
+TC-08: Customer with active US address (end_date NULL) — included
+----------------------------------------------------------------------
+Purpose:       Verify the base case — open-ended US address qualifies
+Input:         Effective date = 20241001. Customer 1004, address 2012 (US, end_date = NULL).
+               Transaction 5031 on account 3004 (Checking).
+Expected:      Transaction 5031 appears in output with address_id = 2012, country = "US".
+Validation:    Output row present with expected address fields.
+Covered rules: BR-4
+
+TC-09: Customer with US address ending ON effective date — included
+----------------------------------------------------------------------
+Purpose:       Verify that end_date = effective date means the address is still active
+Input:         Effective date = 20241002. Customer 1001, address 2001 (US, end_date = 2024-10-02).
+               Transaction 5036 on account 3001 (Checking).
+Expected:      Transaction 5036 appears in output with address_id = 2001.
+Validation:    Output row present. Address 2001 is used (not the new CA address 2002).
+Covered rules: BR-4
+
+TC-10: Customer with US address ended BEFORE effective date — excluded
+----------------------------------------------------------------------
+Purpose:       Verify that end_date < effective date disqualifies the address
+Input:         Effective date = 20241003. Customer 1001, address 2001 (US, end_date = 2024-10-02).
+               Only other address is 2002 (CA). Transaction 4002 on account 3001 (Checking).
+Expected:      Transaction 4002 does NOT appear in output. Customer 1001 has no active US address.
+Validation:    Search output for customer_id 1001; not found.
+Covered rules: BR-4
+
+TC-11: Customer with CA-only address and Checking account — excluded
+----------------------------------------------------------------------
+Purpose:       Verify customers with only non-US addresses are excluded
+Input:         Effective date = 20241001. Customer 1013, address 2021 (CA, Montreal).
+               Account 3013 is Checking. Transactions exist (e.g., 4025 on Oct 3).
+Expected:      No transactions for customer 1013 appear in any output file.
+Validation:    Search all output files for customer_id 1013; never found.
+Covered rules: BR-4
+
+TC-12: Customer transitions from US to non-US address — excluded after transition
+----------------------------------------------------------------------
+Purpose:       Verify a customer who loses their US address stops appearing in output
+Input:         Customer 1001: US address 2001 ends Oct 2, CA address 2002 starts Oct 2.
+               Effective dates: 20241001, 20241002, 20241003.
+Expected:      Oct 1: customer 1001 transactions present (US address active).
+               Oct 2: customer 1001 transactions present (US address end_date = Oct 2, still active).
+               Oct 3: customer 1001 transactions ABSENT (US address expired day before).
+Validation:    Check each date's output for customer 1001 presence/absence.
+Covered rules: BR-4
+
+TC-13: Address selection — single active US address (common case)
+----------------------------------------------------------------------
+Purpose:       Verify the correct address is used when only one active US address exists
+Input:         Effective date = 20241001. Customer 1006, one address: 2014 (US, no end_date).
+Expected:      Output shows address_id = 2014 with correct street/city/state/postal/country.
+Validation:    All 6 address fields match the addresses table for address_id 2014.
+Covered rules: BR-5
+
+TC-14: Address tie-breaking — multiple active US addresses, earliest start_date wins
+----------------------------------------------------------------------
+Purpose:       Verify that when two US addresses are active, the one with the earlier start_date
+               is selected
+Input:         Synthetic data: Customer X with Checking account and two active US addresses:
+               Address A: start_date = 2020-01-01, end_date = NULL, city = "Denver"
+               Address B: start_date = 2023-06-15, end_date = NULL, city = "Miami"
+               Transaction on effective date for this customer.
+Expected:      Output shows Address A (Denver, start_date 2020-01-01).
+Validation:    Output city = "Denver", address_id = A's ID.
+Covered rules: BR-5
+
+
+================================================================================
+TIER 2: ENRICHMENT & JOINS
+================================================================================
+
+TC-15: Segment code enrichment — single segment customer
+----------------------------------------------------------------------
+Purpose:       Verify customer_segment is correctly derived from segment_code
+Input:         Effective date = 20241001. Customer 1004 is in segment_id 1 (USRET) only.
+Expected:      Output shows customer_segment = "USRET".
+Validation:    customer_segment field matches segments.segment_code for the customer's segment.
+Covered rules: BR-6
+
+TC-16: Segment selection — multiple segments, alphabetical first wins
+----------------------------------------------------------------------
+Purpose:       Verify alphabetical selection when customer belongs to multiple segments
+Input:         Effective date = 20241001. Customer 1010 is in segments USRET (1) and RICH (3).
+               Alphabetically: RICH < USRET.
+Expected:      Output shows customer_segment = "RICH" (first alphabetically).
+Validation:    customer_segment = "RICH".
+Covered rules: BR-6, BR-7
+
+TC-17: Segment selection — known deviation from test output (CANRET < USRET)
+----------------------------------------------------------------------
+Purpose:       Verify customer 1001 gets CANRET (not USRET) per confirmed alphabetical rule
+Input:         Effective date = 20241001. Customer 1001 is in segments USRET (1) and CANRET (2).
+               Alphabetically: CANRET < USRET.
+Expected:      Output shows customer_segment = "CANRET".
+               NOTE: This deviates from the original test output which showed "USRET".
+               The implementation follows the stakeholder-confirmed alphabetical rule.
+Validation:    customer_segment = "CANRET".
+Covered rules: BR-7
+
+TC-18: Duplicate segment assignments — no duplicate output rows
+----------------------------------------------------------------------
+Purpose:       Verify that duplicate customers_segments entries do not cause row multiplication
+Input:         Synthetic data: Customer with Checking account + active US address, assigned to
+               segment RICH twice in customers_segments (two rows, same segment_id).
+               One transaction on effective date.
+Expected:      Output contains exactly ONE row for this transaction, not two.
+               customer_segment = "RICH".
+Validation:    Count output rows for this customer = 1.
+Covered rules: BR-7 (deduplication)
+
+TC-19: Field renames — prefix, suffix, open_date
+----------------------------------------------------------------------
+Purpose:       Verify the three renamed fields appear with correct output column names
+Input:         Effective date = 20241001. Any qualifying transaction.
+Expected:      Output header contains "name_prefix" (not "prefix"), "name_suffix" (not "suffix"),
+               "account_opened" (not "open_date").
+               Data values match the source fields.
+Validation:    Header check + value verification:
+               customers.prefix -> name_prefix
+               customers.suffix -> name_suffix
+               accounts.open_date -> account_opened
+Covered rules: BR-8
+
+TC-20: Excluded fields — verify absence from output
+----------------------------------------------------------------------
+Purpose:       Verify that excluded fields from accounts, customers, and addresses do not
+               appear in the output header or data
+Input:         Any effective date producing output.
+Expected:      Output header does NOT contain: current_balance, interest_rate, credit_limit,
+               apr, birthdate, start_date, end_date, segment_name, segment_id, as_of.
+               Output has exactly 22 columns.
+Validation:    Parse header; confirm exactly the 22 expected field names. No extras.
+Covered rules: BR-9, BR-10, BR-11
+
+TC-21: Snapshot fallback — weekend date uses Friday's account/customer data
+----------------------------------------------------------------------
+Purpose:       Verify that when no account/customer snapshot exists for effective date,
+               the most recent available snapshot is used
+Input:         Effective date = 20241005 (Saturday). Accounts/customers have data for Oct 1-4
+               and Oct 7, but NOT Oct 5. Addresses, segments, customers_segments have Oct 5 data.
+Expected:      Output produced successfully. Account and customer data matches the Oct 4 snapshot.
+               Transaction 5044 (account 3006, customer 1006) appears with correct customer name
+               and account details from the Oct 4 snapshot.
+Validation:    Output file exists. Data matches Oct 4 account/customer values.
+Covered rules: BR-12, BR-17
+
+TC-22: Snapshot fallback — Sunday also uses Friday's data
+----------------------------------------------------------------------
+Purpose:       Verify the same fallback applies on a second consecutive missing day
+Input:         Effective date = 20241006 (Sunday). Same missing snapshots as TC-21.
+Expected:      Output produced using Oct 4 account/customer snapshots.
+               Transaction 4016 (account 3008, customer 1008) appears correctly.
+Validation:    Output file exists. Footer "Expected records: 1".
+Covered rules: BR-12
+
+TC-23: Snapshot fallback — weekday with available snapshot uses same-day data
+----------------------------------------------------------------------
+Purpose:       Verify that when a same-day snapshot exists, it is used (no unnecessary fallback)
+Input:         Effective date = 20241004 (Friday). Accounts/customers have Oct 4 data.
+Expected:      Output uses Oct 4 snapshot directly. Correct account/customer data for all records.
+Validation:    Output matches expected values from Oct 4 snapshots.
+Covered rules: BR-12
+
+
+================================================================================
+TIER 3: OUTPUT FORMAT & STRUCTURE
+================================================================================
+
+TC-24: File structure — header, data, blank line, footer
+----------------------------------------------------------------------
+Purpose:       Verify the exact file structure
+Input:         Effective date = 20241002 (2 qualifying records).
+Expected:      Line 1: Header (22 quoted field names, comma-separated)
+               Lines 2-3: Data rows
+               Line 4: Blank line
+               Line 5: "Expected records: 2"
+               No trailing newline after footer (or exactly one).
+Validation:    Line-by-line structural verification.
+Covered rules: BR-13
+
+TC-25: Header content — exact field names and quoting
+----------------------------------------------------------------------
+Purpose:       Verify the header row contains exactly the right 22 field names, all double-quoted
+Input:         Any effective date.
+Expected:      Header = "transaction_id","txn_timestamp","txn_type","amount","description",
+               "customer_id","name_prefix","first_name","last_name","sort_name","name_suffix",
+               "customer_segment","address_id","address_line1","city","state_province",
+               "postal_code","country","account_id","account_type","account_status",
+               "account_opened"
+Validation:    Exact string match of header row.
+Covered rules: BR-13
+
+TC-26: Footer accuracy — record count matches data rows
+----------------------------------------------------------------------
+Purpose:       Verify footer count matches across all test dates
+Input:         Run for all 7 effective dates (Oct 1-7).
+Expected:      Each file's "Expected records: N" matches actual data row count.
+               Oct 1: 6, Oct 2: 2, Oct 3: 4, Oct 4: 3, Oct 5: 5, Oct 6: 1, Oct 7: 2
+               (Note: Oct 1-2 counts may differ from original test output due to the CANRET
+               segment rule change, but the RECORD COUNT should remain the same since segment
+               does not affect filtering.)
+Validation:    For each file: count data rows (excluding header, blank line, footer) = N
+               in "Expected records: N".
+Covered rules: BR-13
+
+TC-27: Sort order — customer_id ASC, transaction_id DESC
+----------------------------------------------------------------------
+Purpose:       Verify output sorting with multiple customers and multiple transactions per customer
+Input:         Effective date = 20241001 (6 records, multiple customers with multiple txns).
+Expected:      Records appear in order:
+               customer 1001: txn 5001, then 4001 (descending txn_id)
+               customer 1004: txn 5031
+               customer 1006: txn 4011
+               customer 1010: txn 5032, then 4019 (descending txn_id)
+Validation:    Extract customer_id and transaction_id columns; verify sort invariant:
+               customer_id[i] <= customer_id[i+1]; when equal, transaction_id[i] > transaction_id[i+1].
+Covered rules: BR-14
+
+TC-28: Sort order — single record per customer (trivial sort)
+----------------------------------------------------------------------
+Purpose:       Verify sort when each customer has exactly one transaction
+Input:         Effective date = 20241002 (2 records: customer 1001 txn 5036, customer 1006 txn 5034).
+Expected:      customer 1001 row before customer 1006 row.
+Validation:    First data row has customer_id 1001; second has 1006.
+Covered rules: BR-14
+
+TC-29: NULL rendering — suffix is NULL
+----------------------------------------------------------------------
+Purpose:       Verify NULL suffix renders as literal unquoted NULL
+Input:         Effective date = 20241001. Customer 1001 has suffix = NULL in database.
+Expected:      Output field name_suffix = NULL (no quotes, literal string "NULL").
+Validation:    Parse the name_suffix field position (11th field); value is exactly: NULL
+               (not "NULL", not "", not empty).
+Covered rules: BR-15
+
+TC-30: NULL rendering — prefix is NULL
+----------------------------------------------------------------------
+Purpose:       Verify NULL prefix renders identically to NULL suffix
+Input:         Synthetic data: Customer with NULL prefix, Checking account, active US address,
+               transaction on effective date.
+Expected:      Output field name_prefix = NULL (unquoted literal).
+Validation:    name_prefix field value is exactly: NULL (unquoted).
+Covered rules: BR-15
+
+TC-31: NULL rendering — description is NULL
+----------------------------------------------------------------------
+Purpose:       Verify NULL on a non-customer field also renders as unquoted NULL
+Input:         Synthetic data: Transaction with description = NULL, on Checking account with
+               active US address customer.
+Expected:      Output field description = NULL (unquoted literal).
+Validation:    description field value is exactly: NULL (unquoted).
+Covered rules: BR-15
+
+TC-32: Zero qualifying records — file still produced
+----------------------------------------------------------------------
+Purpose:       Verify output file is created when no transactions qualify
+Input:         Synthetic effective date where no Checking-account customers have active US
+               addresses, or no transactions exist at all.
+Expected:      Output file exists. Contains:
+               Line 1: Header row (all 22 fields quoted)
+               Line 2: Blank line
+               Line 3: "Expected records: 0"
+Validation:    File exists, 3 lines, header + blank + footer.
+Covered rules: BR-16
+
+TC-33: Zero transactions in database for effective date — file still produced
+----------------------------------------------------------------------
+Purpose:       Verify output when the transactions table has no rows for the effective date
+Input:         Effective date for which transactions table contains zero rows (e.g., a future
+               date or a date with no data loaded).
+Expected:      Same as TC-32: header + blank line + "Expected records: 0".
+Validation:    File structure matches zero-record format.
+Covered rules: BR-16
+
+TC-34: Output file naming convention
+----------------------------------------------------------------------
+Purpose:       Verify the output file is named correctly
+Input:         Effective date = 20241004. Output directory = /some/path.
+Expected:      Output file created at /some/path/covered_transactions_20241004.csv
+Validation:    File exists at expected path with expected name.
+Covered rules: BR-1, BR-16
+
+
+================================================================================
+TIER 4: EDGE CASES & BOUNDARIES
+================================================================================
+
+TC-35: Segment snapshot — uses effective date as_of
+----------------------------------------------------------------------
+Purpose:       Verify customers_segments and segments are joined on effective date's as_of
+Input:         Effective date = 20241003. customers_segments and segments both have Oct 3 data.
+Expected:      Segment enrichment uses Oct 3 snapshot, not another date.
+Validation:    Output segment values match the segment_code from the Oct 3 snapshot.
+               (Since segments are static, this is primarily a structural verification.)
+Covered rules: BR-17
+
+TC-36: Customer with US address and CA address — US address selected
+----------------------------------------------------------------------
+Purpose:       Verify that when both US and CA addresses exist, the US one is used
+Input:         Effective date = 20241002. Customer 1001 has:
+               Address 2001: US, end_date = 2024-10-02 (active)
+               Address 2002: CA, end_date = NULL (active)
+Expected:      Output uses address 2001 (US), NOT 2002 (CA).
+               country = "US", city = "Columbus".
+Validation:    address_id = 2001, country = "US".
+Covered rules: BR-4, BR-5
+
+TC-37: Customer with only non-US active address and expired US address — excluded
+----------------------------------------------------------------------
+Purpose:       Verify that an expired US address does not qualify
+Input:         Effective date = 20241006. Customer 1001 has:
+               Address 2001: US, end_date = 2024-10-02 (expired: Oct 2 < Oct 6)
+               Address 2002: CA, end_date = NULL (active)
+               Transactions exist (5022, 5046 on account 3001).
+Expected:      Customer 1001 does NOT appear in Oct 6 output.
+Validation:    Search output for customer_id 1001; not found.
+Covered rules: BR-4
+
+TC-38: Multiple transactions for same customer on same day
+----------------------------------------------------------------------
+Purpose:       Verify all qualifying transactions per customer are included (no dedup of txns)
+Input:         Effective date = 20241001. Customer 1001 has 2 transactions: 5001, 4001.
+               Customer 1010 has 2 transactions: 5032, 4019.
+Expected:      Both transactions appear for each customer (4 total for these 2 customers).
+Validation:    Count rows for customer 1001 = 2; count rows for customer 1010 = 2.
+Covered rules: BR-2, BR-14
+
+TC-39: Single transaction for the entire day
+----------------------------------------------------------------------
+Purpose:       Verify correct behavior with minimal qualifying data
+Input:         Effective date = 20241006 (only 1 qualifying transaction: 4016).
+Expected:      Output has 1 data row. Footer: "Expected records: 1".
+Validation:    Data row count = 1. transaction_id = 4016.
+Covered rules: BR-13, BR-14
+
+TC-40: Quoting — integer fields unquoted
+----------------------------------------------------------------------
+Purpose:       Verify integer fields are not wrapped in double quotes
+Input:         Any effective date with output records.
+Expected:      transaction_id, customer_id, address_id, account_id values have no surrounding
+               double quotes in the raw CSV.
+Validation:    Parse raw CSV line; fields at positions 0, 5, 12, 18 have no quote characters.
+Covered rules: Data Validation (quoting rules)
+
+TC-41: Quoting — string, timestamp, and decimal fields quoted
+----------------------------------------------------------------------
+Purpose:       Verify non-integer, non-NULL fields are double-quoted
+Input:         Any effective date with output records.
+Expected:      Fields: txn_timestamp, txn_type, amount, description, name_prefix, first_name,
+               last_name, sort_name, customer_segment, address_line1, city, state_province,
+               postal_code, country, account_type, account_status, account_opened are all
+               wrapped in double quotes.
+Validation:    Parse raw CSV; confirm each listed field position has enclosing " characters.
+Covered rules: Data Validation (quoting rules)
+
+TC-42: Amount precision — exactly 2 decimal places
+----------------------------------------------------------------------
+Purpose:       Verify amount values retain 2 decimal places
+Input:         Effective date = 20241001. Amounts include 142.50, 500.00, 275.00, 25.50.
+Expected:      All amounts in output have exactly 2 digits after decimal point.
+               No trailing zeros dropped (500.00, not 500 or 500.0).
+Validation:    Regex match on amount field: ^\d+\.\d{2}$
+Covered rules: Data Validation (amount format)
+
+TC-43: Timestamp format — YYYY-MM-DD HH:MM:SS
+----------------------------------------------------------------------
+Purpose:       Verify timestamp formatting with no timezone or milliseconds
+Input:         Any effective date with output records.
+Expected:      All txn_timestamp values match format "YYYY-MM-DD HH:MM:SS" exactly.
+Validation:    Regex match: ^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$
+Covered rules: Data Validation (timestamp format)
+
+TC-44: Special characters in customer names — passthrough integrity
+----------------------------------------------------------------------
+Purpose:       Verify names with hyphens, apostrophes, accented characters, and spaces pass
+               through correctly (relevant if these customers ever get US Checking accounts)
+Input:         Synthetic data: Customer with first_name="Ana María", last_name="de la Cruz",
+               Checking account, active US address.
+Expected:      Output correctly preserves "Ana María" and "de la Cruz" with proper encoding.
+Validation:    Character-level match of first_name and last_name fields.
+Covered rules: Customer enrichment integrity
+
+
+================================================================================
+TIER 5: ERROR & FAILURE SCENARIOS
+================================================================================
+
+TC-45: Missing effective date argument
+----------------------------------------------------------------------
+Purpose:       Verify the program handles missing command-line arguments gracefully
+Input:         Invoke with only the output directory argument; omit the effective date.
+Expected:      Program exits with non-zero exit code and an informative error message.
+               No output file is created.
+Validation:    Exit code != 0. Error message references missing date argument.
+Covered rules: BR-1
+
+TC-46: Invalid effective date format
+----------------------------------------------------------------------
+Purpose:       Verify the program rejects malformed date strings
+Input:         Invoke with effective date = "2024-10-01" (hyphenated) or "Oct01" or "abcdefgh".
+Expected:      Program exits with non-zero exit code and an informative error message.
+               No output file is created.
+Validation:    Exit code != 0 for each invalid format.
+Covered rules: BR-1
+
+TC-47: Invalid effective date value — valid format but impossible date
+----------------------------------------------------------------------
+Purpose:       Verify the program rejects dates like February 30
+Input:         Invoke with effective date = "20240230" (Feb 30 doesn't exist).
+Expected:      Program exits with non-zero exit code and an informative error message.
+Validation:    Exit code != 0.
+Covered rules: BR-1
+
+TC-48: Missing output directory argument
+----------------------------------------------------------------------
+Purpose:       Verify the program handles missing output directory gracefully
+Input:         Invoke with no arguments at all.
+Expected:      Program exits with non-zero exit code and an informative error message.
+Validation:    Exit code != 0.
+Covered rules: BR-1
+
+TC-49: Output directory does not exist
+----------------------------------------------------------------------
+Purpose:       Verify behavior when the specified output directory is invalid
+Input:         Invoke with output directory = "/nonexistent/path" and a valid effective date.
+Expected:      Program exits with non-zero exit code and an informative error message.
+               No file is created.
+Validation:    Exit code != 0. Error message references directory.
+Covered rules: BR-1
+
+TC-50: Database connection failure
+----------------------------------------------------------------------
+Purpose:       Verify graceful handling when the database is unreachable
+Input:         Run pipeline with database down or connection string pointing to wrong host.
+Expected:      Program exits with non-zero exit code and a meaningful error message.
+               No partial output file is left behind.
+Validation:    Exit code != 0. No output file in target directory.
+Covered rules: Error handling (not tied to specific BR)
+
+TC-51: Transaction references non-existent account
+----------------------------------------------------------------------
+Purpose:       Verify behavior when a transaction's account_id has no matching account row
+Input:         Synthetic data: Transaction with account_id = 9999 (not in accounts table).
+Expected:      Transaction is excluded from output (inner join fails silently).
+               Other qualifying transactions are unaffected.
+Validation:    Transaction 9999 not in output. Other records present and correct.
+Covered rules: Join integrity
+
+TC-52: Customer has no segment assignment
+----------------------------------------------------------------------
+Purpose:       Verify behavior when a qualifying customer has no customers_segments row
+Input:         Synthetic data: Customer with Checking account, active US address, transaction
+               on effective date, but zero rows in customers_segments for this customer.
+Expected:      Two possible behaviors (implementation decision):
+               (a) Transaction excluded (inner join on segment fails) — if so, customer_segment
+                   is required for output.
+               (b) Transaction included with customer_segment = NULL — if segment join is outer.
+               Either behavior is acceptable; document which one the implementation follows.
+Validation:    Verify consistent behavior and document.
+Covered rules: BR-6, BR-7 (edge case not covered by test data)
+
+
+================================================================================
+COVERAGE GAPS & ASSUMPTIONS
+================================================================================
+
+Coverage Gaps
+-------------
+
+CG-1: All accounts in test data are "Active". TC-07 requires synthetic data to validate that
+      non-Active statuses (Closed, Suspended, etc.) pass through without being filtered.
+      This cannot be tested against the provided test database without data modification.
+
+CG-2: All customers in the output have NULL suffix. No customer with a non-NULL suffix
+      AND a Checking account AND a US address exists in the test data. The suffix quoting
+      behavior for non-NULL values is verified indirectly through the general quoting rules
+      but not directly observed.
+
+CG-3: No customer in the output has a NULL prefix. TC-30 requires synthetic data.
+
+CG-4: No transaction in the test data has a NULL description. TC-31 requires synthetic data.
+
+CG-5: The multiple-active-US-address tie-breaking (TC-14) cannot be tested against the
+      provided database — no customer has two simultaneously active US addresses. Requires
+      synthetic data.
+
+CG-6: The segment deduplication behavior (TC-18) is partially testable — customer 1015 has
+      duplicate RICH entries but is filtered out (Credit account). A full test requires
+      either modifying customer 1015's account type or creating synthetic data.
+
+CG-7: Snapshot fallback for segments and customers_segments tables (BR-17) cannot be tested
+      against the provided database since both tables have data for all 7 dates. Requires
+      removing rows to simulate missing snapshots.
+
+CG-8: The behavior when a customer exists in the customers table but has no entry at all in
+      the addresses table is unspecified. This scenario does not exist in the test data.
+
+CG-9: Performance at scale (5M customers, 10M accounts, 20M transactions) is not covered by
+      functional test cases. Performance testing requires a separate load/stress test plan.
+
+
+Assumptions
+-----------
+
+AS-1: Test cases requiring "synthetic data" (TC-07, TC-14, TC-18, TC-30, TC-31, TC-32, TC-33,
+      TC-44, TC-51, TC-52) assume the ability to insert temporary test records into the
+      database or to use a separate test database instance. These tests cannot be run against
+      the provided test data as-is.
+
+AS-2: The known deviation for customer 1001's segment (TC-17) means that output files for
+      dates where customer 1001 qualifies (Oct 1 and Oct 2) will differ from the original
+      provided output in the customer_segment column only. All other columns and all other
+      records will match.
+
+AS-3: Error handling tests (TC-45 through TC-50) assume the program provides a non-zero exit
+      code on failure. The exact exit codes and error message formats are implementation-
+      dependent and should be documented once the implementation is built.
+
+AS-4: TC-52 (customer with no segment) documents two acceptable behaviors. The implementation
+      should choose one and document it. The test case should then be updated to validate
+      the chosen behavior.
