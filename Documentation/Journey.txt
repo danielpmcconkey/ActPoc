@@ -3972,12 +3972,168 @@ I then ran it with the passed in effective date of 2024-10-02 (after saving off 
 different name. Results were identical 
 
 ************************************************************************************************************************
+************************************************************************************************************************
+
+Hybrid session
+Feb 15
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+I decided that I wanted to do the next challenge as one with DB sources, rather than file sources and give the AI a 
+fighting chance at coming to set-based operations on its own. I decided to turn my database tables into a true data
+lake. I first had to alter all tables to create an as-of date column.
+
+    set session vars.default_as_of = '2000-01-01';
+    
+    --alter table public.accounts add as_of date not null default '2000-01-01'
+    --alter table public.addresses add as_of date not null default '2000-01-01'
+    --alter table public.customers add as_of date not null default current_setting('vars.default_as_of')::date;
+    --alter table public.customers_segments add as_of date not null default current_setting('vars.default_as_of')::date;
+    --alter table public.segments add as_of date not null default current_setting('vars.default_as_of')::date;
+    --alter table public.transactions add as_of date not null default current_setting('vars.default_as_of')::date;
+
+
+
+I then needed to remove all of my primary and foreign keys so I could put day-over-day data into each table 
+
+************************************************************************************************************************
+
 
 PROMPT
+    can you write an sql statement that drops all primary and foreign key constraints for an entire postgres database 
+    schema? 
 
 
 RESPONSE
+                                                                                                                          
+    DO $$                                                                                                                                     
+      DECLARE                                                                                                                                 
+          r RECORD;                                                                                                                             
+      BEGIN                                                                                                                                   
+          -- Drop all foreign keys first to avoid dependency issues                                                                             
+          FOR r IN                                                                                                                            
+              SELECT tc.table_schema, tc.table_name, tc.constraint_name
+              FROM information_schema.table_constraints tc
+              WHERE tc.table_schema = 'public'
+                AND tc.constraint_type = 'FOREIGN KEY'
+          LOOP
+              EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
+                  r.table_schema, r.table_name, r.constraint_name);
+              RAISE NOTICE 'Dropped FK: %.%.%', r.table_schema, r.table_name, r.constraint_name;
+          END LOOP;
+    
+          -- Then drop all primary keys
+          FOR r IN
+              SELECT tc.table_schema, tc.table_name, tc.constraint_name
+              FROM information_schema.table_constraints tc
+              WHERE tc.table_schema = 'public'
+                AND tc.constraint_type = 'PRIMARY KEY'
+          LOOP
+              EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
+                  r.table_schema, r.table_name, r.constraint_name);
+              RAISE NOTICE 'Dropped PK: %.%.%', r.table_schema, r.table_name, r.constraint_name;
+          END LOOP;
+      END $$;
+    
+      Change 'public' to your target schema name if different. Foreign keys are dropped first since they reference primary keys — dropping PKs
+      first would fail on the dependency.
+    
+      If you want to preview what will be dropped before running it, use this read-only query first:
+    
+      SELECT constraint_type, table_name, constraint_name
+      FROM information_schema.table_constraints
+      WHERE table_schema = 'public'
+        AND constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
+      ORDER BY constraint_type DESC, table_name;
 
+************************************************************************************************************************
+
+I then wrote the following and executed it for each logical day between 2024-10-01 and 2024-10-07
+    
+    set session vars.run_date = 	'2024-10-07';
+    set session vars.start_date = 	'2024-10-07 00:00';
+    
+    set session vars.default_as_of = '2000-01-01';
+    
+    
+    INSERT INTO public.accounts(
+        account_id, customer_id, account_type, account_status, open_date, current_balance, 
+        interest_rate, credit_limit, apr, as_of)
+    select	account_id, customer_id, account_type, account_status, open_date, current_balance, 
+        interest_rate, credit_limit, apr, current_setting('vars.run_date')::date
+    from public.accounts
+    where as_of = current_setting('vars.default_as_of')::date;
+    
+    
+    INSERT INTO public.addresses(
+        address_id, customer_id, address_line1, city, state_province, postal_code, country, 
+        start_date, end_date, as_of)
+    select 
+        address_id, 
+        customer_id, 
+        address_line1,
+        city, 
+        state_province, 
+        postal_code, 
+        country, 
+        start_date,
+        case when end_date > current_setting('vars.run_date')::date then null else end_date end as end_date, 
+        current_setting('vars.run_date')::date
+    from public.addresses 
+    where start_date <= current_setting('vars.run_date')::date
+    and as_of = current_setting('vars.default_as_of')::date
+    order by address_id;
+    
+    
+    INSERT INTO public.customers(
+        id, prefix, first_name, last_name, sort_name, suffix, birthdate, as_of)
+    select 
+        id, prefix, first_name, last_name, sort_name, suffix, birthdate, 
+        current_setting('vars.run_date')::date
+    from public.customers
+    where as_of = current_setting('vars.default_as_of')::date;
+    
+    INSERT INTO public.customers_segments(
+        id, customer_id, segment_id, as_of)
+    select id, customer_id, segment_id, current_setting('vars.run_date')::date
+    from public.customers_segments
+    where as_of = current_setting('vars.default_as_of')::date;
+    
+    INSERT INTO public.segments(
+        segment_id, segment_name, segment_code, as_of)
+    select segment_id, segment_name, segment_code, current_setting('vars.run_date')::date
+    from public.segments
+    where as_of = current_setting('vars.default_as_of')::date;
+    
+    INSERT INTO public.transactions(
+        transaction_id, account_id, txn_timestamp, txn_type, amount, description, as_of)
+    select 
+        transaction_id,
+        account_id,
+        txn_timestamp,
+        txn_type,
+        amount,
+        description,
+        current_setting('vars.run_date')::date
+    from public.transactions
+    where txn_timestamp >= current_setting('vars.start_date')::timestamp
+    and txn_timestamp < current_setting('vars.start_date')::timestamp + interval '1 days'
+    and as_of = current_setting('vars.default_as_of')::date;
+    
+    
+    /*
+    delete from public.accounts where as_of in ('2024-10-05','2024-10-06');
+    delete from public.customers where as_of in ('2024-10-05','2024-10-06');
+    delete from public.addresses where as_of = '2000-01-01';
+    delete from public.accounts where as_of = '2000-01-01';
+    delete from public.customers where as_of = '2000-01-01';
+    delete from public.customers_segments where as_of = '2000-01-01';
+    delete from public.segments where as_of = '2000-01-01';
+    delete from public.transactions where as_of = '2000-01-01';
+    */
+
+I next spot checked the data for addresses and transactions and all looked right.
 
 
 ************************************************************************************************************************
