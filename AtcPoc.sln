@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedFunctions", "SharedFu
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeAddressChanges", "ClaudeAddressChanges\ClaudeAddressChanges.csproj", "{4C7038C8-9126-415F-9D17-5A5368E33984}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeCoveredTransactions", "ClaudeCoveredTransactions\ClaudeCoveredTransactions.csproj", "{4E48573F-A0A2-4DC8-8D47-36D817EEAFB7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{4C7038C8-9126-415F-9D17-5A5368E33984}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4C7038C8-9126-415F-9D17-5A5368E33984}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4C7038C8-9126-415F-9D17-5A5368E33984}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E48573F-A0A2-4DC8-8D47-36D817EEAFB7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E48573F-A0A2-4DC8-8D47-36D817EEAFB7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E48573F-A0A2-4DC8-8D47-36D817EEAFB7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E48573F-A0A2-4DC8-8D47-36D817EEAFB7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
