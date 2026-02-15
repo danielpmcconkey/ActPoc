@@ -4353,12 +4353,531 @@ I'm also going to provide a function to connect to the DB from within the code.
 
 PROMPT
 
+    we're going to start a new ETL pipeline today. Are you able to see the files in ClaudeCoveredTransactions project?
+    
+RESPONSE
+
+    Yes, I can see the files in the ClaudeCoveredTransactions project. Here's what's there so far:                                            
+                                                                                                                                                
+      - ClaudeCoveredTransactions.csproj — .NET project file                                                                                    
+      - Program.cs — Entry point                                
+      - DataTypes.cs — Data type definitions                                                                                                    
+      - DataAccessLayer.cs — Database access layer              
+      - DataLakeReader.cs — File reader for data lake files                                                                                     
+      - bin/ and obj/ — Build output directories                
+    
+      Let me take a quick look at the existing code so I'm up to speed.
+    
+    ● Read 5 files (ctrl+o to expand)    
+    
+    ● Yes, I can see everything. Here's what you have set up so far:
+    
+      - ClaudeCoveredTransactions.csproj — .NET 8 console app with Npgsql dependency for PostgreSQL access                                      
+      - DataTypes.cs — Record types for 6 entities: Account, Address, Customer, CustomerSegment, Segment, Transaction 
+            — all with an as_of date field                                                                                                                                     
+      - DataAccessLayer.cs — PostgreSQL connection helper reading the password from a PGPASS environment variable
+            (hex-encoded)
+      - DataLakeReader.cs — Query methods to pull each entity type by as_of date from your PostgreSQL database 
+            (tables: accounts, addresses, customers, customers_segments, segments, transactions)
+      - Program.cs — Entry point with commented-out calls loading all 7 days (Oct 1-7) for each entity type
+    
+      I notice one small bug in DataLakeReader.GetAccountsByAsOf — line 18 hardcodes DateTime.Parse("2024-10-01") 
+            instead of using the asOf parameter, but we can fix that when we get going.
+    
+      Ready for your instructions on the new ETL pipeline!
+
+
+************************************************************************************************************************
+
+PROMPT
+
+    Thank you. I fixed the bug in GetAccounts on my own
+
+RESPONSE
+
+    Got it, good catch. Ready whenever you want to kick off the new pipeline. 
+
+
+************************************************************************************************************************
+
+PROMPT
+
+❯   The commented out calls in Program.cs are there as examples for you. I'm going to ask you in a bit to review and 
+    understand the data in the database for those tables. Can you access that data to understand how it's composed? 
+
+RESPONSE
+
+    No, I don't have direct access to your PostgreSQL database from my environment. I'd need you to provide the data for
+    me to review — either by exporting it to files (CSVs, etc.) or by pasting query results here.                                                                  
+                                                                                                                                            
+    How would you like to get the data to me? 
+
+************************************************************************************************************************
+
+
+PROMPT
+
+    write me a script I can execute in PgAdmin that creates a new user named claude and give that user read-only access 
+    to all tables in the public schema 
+RESPONSE
+    
+    -- Create the user                                                                                                                        
+      CREATE USER claude WITH PASSWORD 'claude_readonly';                                                                                       
+                                                                                                                                                
+      -- Grant connect privilege on the database
+      GRANT CONNECT ON DATABASE atc TO claude;                                                                                                  
+                                                                
+      -- Grant usage on the public schema
+      GRANT USAGE ON SCHEMA public TO claude;
+    
+      -- Grant SELECT on all existing tables in public schema
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO claude;
+    
+      -- Grant SELECT on any future tables created in public schema
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO claude;
+    
+      Run this in PgAdmin connected as a superuser or the database owner. The user claude will have read-only access to all current and future
+      tables in the public schema of the atc database.
+
+
+************************************************************************************************************************
+
+PROMPT
+    Okay. I executed that script using the password you provided. However, I did not execute the portion that grants you
+    permissions to future tables. That won't be needed.
+
+RESPONSE
+    Understood. So claude has CONNECT on atc, USAGE on public, and SELECT on all existing tables. That's all I need for
+    read-only access.     
+                                                                                                                                                
+    Whenever you're ready for me to query the data, just let me know the connection details (host, port) and how you'd
+    like me to connect — or if you'd prefer to export the data to files for me to review instead.
+
+
+************************************************************************************************************************
+
+PROMPT
+
+    the host is localhost, port 5432. please try to connect to the DB and confirm you have read access to the accounts,
+    addresses, customers, customers_segments, segments, and transactions tables. All are in the public schema 
+
+RESPONSE
+    
+    Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT COUNT(*) AS cnt FROM public.accounts;")           
+      ⎿   cnt                                                                                                                                   
+         -----                                                                                                                                  
+         115                                                                                                                                    
+         (1 row)                                                                                                                                
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT COUNT(*) AS cnt FROM public.addresses; SELECT
+          COUNT(*) AS cnt FROM public.cus…)                                                                                                     
+      ⎿   cnt                                                                                                                                   
+         -----                                                                                                                                  
+         170                                                                                                                                    
+         … +21 lines (ctrl+o to expand)                                                                                                         
+                                                                                                                                                
+    ● I have read access to all 6 tables. Here are the row counts:                                                                              
+                                                                                                                                                
+      ┌────────────────────┬──────┐                                                                                                             
+      │       Table        │ Rows │                                                                                                             
+      ├────────────────────┼──────┤                                                                                                             
+      │ accounts           │ 115  │                                                                                                             
+      ├────────────────────┼──────┤                                                                                                             
+      │ addresses          │ 170  │                                                                                                             
+      ├────────────────────┼──────┤                                                                                                             
+      │ customers          │ 115  │                                                                                                             
+      ├────────────────────┼──────┤                                                                                                             
+      │ customers_segments │ 210  │
+      ├────────────────────┼──────┤
+      │ segments           │ 21   │
+      ├────────────────────┼──────┤
+      │ transactions       │ 96   │
+      └────────────────────┴──────┘
+    
+      Ready to dig into the data whenever you are.
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+    You are an ETL reverse-engineering analyst. Your job is to infer the business requirements of a lost ETL pipeline 
+    using only the provided input datasets and the resulting output datasets. The provided input datasets are the accounts,
+    addresses, customers, customers_segments, segments, and transactions tables from the previous prompt. The provided
+    output datasets are the 7 CSV files in the /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Curated directory that start 
+    with covered_transactions_*
+    
+    We know that this ETL pipeline was triggered every day from a command line with the following command line arguments:
+        /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/CuratedClaude 
+        20241002
+    
+    The first argument represents the output directory. The second command line argument is the "as of" date, expressed in
+    YYYYMMDD format.
+    
+    Each day's run produces a single CSV file as output. 
+    
+    Mission
+    Analyze the input and output data and reconstruct the business intent behind the transformation. You are NOT writing code or implementation details. You are discovering:
+        • transformation rules
+        • business logic
+        • validation behavior
+        • data mapping intent
+        • aggregation or filtering logic
+        • assumptions implied by outputs
+    Constraints
+        • Only infer requirements supported by observable evidence in the data
+        • Do not invent business context
+        • Clearly mark uncertainty levels
+        • If multiple interpretations are possible, list alternatives
+        • No implementation details
+        • No technology assumptions
+    Analysis Tasks
+        1. Schema comparison (input vs output)
+        2. Field lineage mapping
+        3. Transformation pattern detection
+        4. Filtering/aggregation detection
+        5. Derived field logic inference
+        6. Edge case behavior inference
+        7. Data quality rules inference
+    Required Output Structure
+    Executive Summary
+    High-level description of what the ETL appears to accomplish.
+    Observed Transformations
+    For each transformation:
+        • Input fields involved
+        • Output field
+        • Observed pattern
+        • Likely rule
+        • Confidence level (High / Medium / Low)
+        • Supporting evidence
+    Inferred Business Rules
+    Numbered list of business requirements with:
+        • Rule description
+        • Evidence reference
+        • Confidence rating
+    Data Validation & Constraints
+    Observed implied rules (formatting, filtering, deduplication, etc.).
+    Ambiguities & Hypotheses
+    List uncertain interpretations and alternative explanations.
+    Traceability Matrix
+    Table linking:
+    Input Field → Output Field → Inferred Rule → Evidence
+    Deliverable Goal
+    Produce a clear, structured specification of inferred business requirements that another agent can use to generate test cases.
+    
+    Special considerations:
+        *   If evidence is insufficient, explicitly state uncertainty rather than guessing.
+        *   Do not assume the original programmer wrote perfect code. If you encounter something you believe to be an error, 
+            call the error out explicitly.
+        *   The data provided in the test database and in the sample output is test data. Assume the final production 
+            version of this will be running across 5 million of customers, 10 million accounts, and 20 million daily 
+            transactions. All programming should be set based. No iterating loops.
+
+RESPONSE
+
+    Let me start by examining the output files and then systematically query the input tables to reverse-engineer the business logic.
+    
+    ● Searched for 1 pattern, read 7 files (ctrl+o to expand)
+    
+    ● Good, I have all 7 output files. Now let me systematically query the input tables to understand the data and identify the
+      filtering/joining logic.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.accounts ORDER BY account_id, as_of
+          LIMIT 50;")
+      ⎿   account_id | customer_id | account_type | account_status | open_date  | current_balance | interest_rate | credit_limit |  apr  |
+           as_of
+         ------------+-------------+--------------+----------------+------------+-----------------+---------------+--------------+-------+-
+         … +54 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.accounts ORDER BY
+          as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +5 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.addresses ORDER BY
+          as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +7 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.customers ORDER BY
+          as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +5 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.customers_segments
+          ORDER BY as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +7 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.segments ORDER BY
+          as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +7 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT DISTINCT as_of FROM public.transactions ORDER BY
+          as_of;")
+      ⎿     as_of
+         ------------
+          2024-10-01
+         … +7 lines (ctrl+o to expand)
+    
+    ● Important finding: not all tables have data for all 7 days. Let me now dig into the segments, customers_segments, and transactions data,
+      plus understand the filtering logic.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.segments ORDER BY as_of,
+          segment_id;")
+      ⎿   segment_id |      segment_name       | segment_code |   as_of
+         ------------+-------------------------+--------------+------------
+                   1 | US retail banking       | USRET        | 2024-10-01
+         … +21 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.customers_segments ORDER BY as_of,
+          customer_id, segment_id;")
+      ⎿   id | customer_id | segment_id |   as_of
+         ----+-------------+------------+------------
+           1 |        1001 |          1 | 2024-10-01
+         … +69 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.accounts WHERE as_of = '2024-10-01'
+          ORDER BY account_id;")
+      ⎿   account_id | customer_id | account_type | account_status | open_date  | current_balance | interest_rate | credit_limit |  apr  |
+           as_of
+         ------------+-------------+--------------+----------------+------------+-----------------+---------------+--------------+-------+-
+         … +25 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.transactions ORDER BY as_of,
+          transaction_id;")
+      ⎿   transaction_id | account_id |    txn_timestamp    | txn_type | amount  |          description           |   as_of
+         ----------------+------------+---------------------+----------+---------+--------------------------------+------------
+                    4001 |       3001 | 2024-10-01 09:12:00 | Credit   |  500.00 | Deposit                        | 2024-10-01
+         … +87 lines (ctrl+o to expand)
+    
+    ● Now let me check the addresses and customers data to understand the join logic.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.addresses WHERE as_of = '2024-10-01'
+           ORDER BY address_id;")
+      ⎿   address_id | customer_id |       address_line1       |     city      | state_province | postal_code | country | start_date | end_
+         date |   as_of
+         ------------+-------------+---------------------------+---------------+----------------+-------------+---------+------------+-----
+         … +26 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.customers WHERE as_of = '2024-10-01'
+           ORDER BY id;")
+      ⎿    id  | prefix | first_name |  last_name   |        sort_name        | suffix | birthdate  |   as_of
+         ------+--------+------------+--------------+-------------------------+--------+------------+------------
+          1001 | Mr.    | Ethan      | Carter       | Carter Ethan            |        | 1985-03-12 | 2024-10-01
+         … +18 lines (ctrl+o to expand)
+    
+    ● Let me check how addresses change across dates, especially for customer 1001 who moved.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.addresses WHERE customer_id = 1001
+          ORDER BY as_of, address_id;")
+      ⎿   address_id | customer_id |   address_line1   |   city   | state_province | postal_code | country | start_date |  end_date  |   as
+         _of
+         ------------+-------------+-------------------+----------+----------------+-------------+---------+------------+------------+-----
+         … +20 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "SELECT * FROM public.addresses WHERE customer_id = 1015
+          ORDER BY as_of, address_id;")
+      ⎿   address_id | customer_id | address_line1 |   city   | state_province | postal_code | country | start_date |  end_date  |   as_of
+    
+         ------------+-------------+---------------+----------+----------------+-------------+---------+------------+------------+---------
+         … +20 lines (ctrl+o to expand)
+    
+    ● Now let me check whether account/customer data changes across snapshots, and how missing as_of dates are handled.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Check if any account data changes across snapshots…)
+      ⎿   account_id | date1 | date2 | type1 | type2 | status1 | status2 | bal1 | bal2
+         ------------+-------+-------+-------+-------+---------+---------+------+------
+         (0 rows)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Check if any customer data changes across snapshots…)
+      ⎿   id | date1 | date2
+         ----+-------+-------
+         (0 rows)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Check if customers_segments data changes across snapshots…)
+      ⎿   customer_id | segment_id |   date1    |   date2
+         -------------+------------+------------+------------
+                 1001 |          1 | 2024-10-02 |
+         … +129 lines (ctrl+o to expand)
+    
+    ● Account and customer data are completely static across snapshots. Let me now do precise verification — trace each Oct 3 and Oct 6 output
+      record to confirm the filtering and snapshot resolution logic.
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Oct 3 transactions: which ones are in the output and why?…)
+      ⎿   transaction_id | account_id | customer_id | account_type | address_id | country |  end_date  | addr_status
+         ----------------+------------+-------------+--------------+------------+---------+------------+-------------
+                    4002 |       3001 |        1001 | Checking     |       2001 | US      | 2024-10-02 | ended
+         … +6 lines (ctrl+o to expand)
+    
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Oct 6 transactions: accounts and customers tables have no Oct 5/6 snapshot…)
+      ⎿   transaction_id | account_id |  txn_asof  | acct_asof  | customer_id | account_type
+         ----------------+------------+------------+------------+-------------+--------------
+                    4004 |       3002 | 2024-10-06 | 2024-10-04 |        1002 | Savings                                                         
+         … +15 lines (ctrl+o to expand)
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "
+          -- Check NULL vs empty string for prefix and suffix…)                                                                                 
+      ⎿    id  | prefix | prefix_null | prefix_len | suffix | suffix_null | suffix_len                                                          
+         ------+--------+-------------+------------+--------+-------------+------------                                                         
+          1001 | Mr.    | f           |          3 |        | t           |                                                                     
+         … +17 lines (ctrl+o to expand)                                                                                                         
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Verify Oct 5 output: addresses use Oct 5 as_of, but which snapshot for accounts/…)                                                 
+      ⎿      source     | address_id | customer_id | country  | end_date |   as_of                                                              
+         ---------------+------------+-------------+----------+----------+------------                                                          
+          acct_fallback |       3006 |        1006 | Checking |          | 2024-10-04                                                           
+         … +6 lines (ctrl+o to expand)                                                                                                          
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Check for NULL descriptions in transactions…)                                                                                      
+      ⎿   transaction_id | description | is_null                                                                                                
+         ----------------+-------------+---------                                                                                               
+         (0 rows)                                                                                                                               
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Check end_date handling: for addresses in the output, is end_date always NULL?…)                                                   
+      ⎿   address_id | customer_id |  end_date  |   as_of                                                                                       
+         ------------+-------------+------------+------------                                                                                   
+                2001 |        1001 |            | 2024-10-01                                                                                    
+         … +27 lines (ctrl+o to expand)                                                                                                         
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Verify txn_timestamp::date always equals as_of…)                                                                                   
+      ⎿   transaction_id | txn_timestamp | as_of                                                                                                
+         ----------------+---------------+-------                                                                                               
+         (0 rows)                                                                                                                               
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Count transactions per as_of vs output record counts…)                                                                             
+      ⎿     as_of    | total_txns                                                                                                               
+         ------------+------------                                                                                                              
+          2024-10-01 |         15                                                                                                               
+         … +7 lines (ctrl+o to expand)                                                                                                          
+                                                                                                                                                
+    ● Bash(PGPASSWORD='claude_readonly' psql -h localhost -p 5432 -U claude -d atc -c "                                                         
+          -- Verify the duplicate segment rows for customer 1015…)                                                                              
+      ⎿   id | customer_id | segment_id |   as_of                                  
+         ----+-------------+------------+------------                                                                                           
+          13 |        1015 |          1 | 2024-10-01                                                                                            
+         … +4 lines (ctrl+o to expand)                                                                                                          
+                                                                                                                                                
+    ● Now I have all the data I need. Let me write the comprehensive analysis.                                                                  
+                                                                                                                                                
+    ● Write(/media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/CoveredTransactionsBusinessReq.txt)                                      
+      ⎿  Wrote 491 lines to ../Documentation/CoveredTransactionsBusinessReq.txt                                                                 
+           1 ETL Reverse-Engineering Analysis: Covered Transactions                                                                             
+           2 =======================================================                                                                            
+           3                                                                                                                                    
+           4 Executive Summary                                                                                                                  
+           5 -----------------                                                                                                                  
+           6                                                                                                                                    
+           7 The ETL pipeline produces a daily "covered transactions" report. For a given effective date (as_of),                               
+           8 it identifies all transactions on Checking accounts where the account holder has an active US address,
+           9 then enriches each transaction with the customer's demographic data (name, prefix, suffix, sort_name),
+          10 mailing address, account details, and customer segment classification. The output is a single CSV file
+         … +481 lines (ctrl+o to expand)
+    
+    ● The analysis is complete and saved to Documentation/CoveredTransactionsBusinessReq.txt.
+    
+      Here's a summary of the key findings:                                                                                                     
+      
+      What the ETL does: For a given effective date, it produces a denormalized CSV of all transactions on Checking accounts where the customer 
+      has an active US address (end_date IS NULL or end_date >= effective date). Each transaction is enriched with customer demographics,
+      address, account details, and segment classification from 6 input tables.
+    
+      Critical filtering logic:
+      - Account type must be Checking (Savings/Credit excluded)
+      - Customer must have an active US address on the effective date
+      - An address ending on the effective date (end_date = as_of) is still considered active; the day after, it's not
+    
+      Key transformations:
+      - 3 field renames: prefix -> name_prefix, suffix -> name_suffix, open_date -> account_opened
+      - Segment priority: RICH > USRET when a customer is in multiple segments
+      - NULLs render as literal unquoted NULL
+      - Sort order: customer_id ASC, transaction_id DESC
+      - Missing snapshots (accounts/customers for Oct 5-6) fall back to most recent available
+    
+      Notable data issues found:
+      - Duplicate segment row for customer 1015 (segment_id 3 appears twice)
+      - Typo: "Affluent houshold" in segments table
+    
+      11 ambiguities documented — the highest-impact being whether filtering is driven by address country, segment membership, or both (they're
+      perfectly correlated in the test data).
+    
+    ✻ Cooked for 9m 27s                  
+
+
+************************************************************************************************************************
+
+PROMPT
+
 
 RESPONSE
 
 
 
 ************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
 
 
 
@@ -4392,6 +4911,29 @@ RESPONSE
 
 ************************************************************************************************************************
 
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
 
 
 ************************************************************************************************************************
@@ -4419,74 +4961,6 @@ PROMPT
 
 
 RESPONSE
-
-
-
-************************************************************************************************************************
-
-
-
-************************************************************************************************************************
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
-
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
-
-
-
-************************************************************************************************************************
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
-
-
-PROMPT
-
-
-RESPONSE
-
-
-
-************************************************************************************************************************
 
 
 
