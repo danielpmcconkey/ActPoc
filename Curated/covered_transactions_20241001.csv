@@ -1,0 +1,9 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+5001,"2024-10-01 08:15:23","Debit","142.50","Office supply purchase",1001,"Mr.","Ethan","Carter","Carter Ethan",NULL,"USRET",2001,"1452 Oak Street","Columbus","OH","43215","US",3001,"Checking","Active","2021-01-15"
+4001,"2024-10-01 09:12:00","Credit","500.00","Deposit",1001,"Mr.","Ethan","Carter","Carter Ethan",NULL,"USRET",2001,"1452 Oak Street","Columbus","OH","43215","US",3001,"Checking","Active","2021-01-15"
+5031,"2024-10-01 08:47:12","Debit","275.00","Warehouse storage fee",1004,"Mrs.","Sophia","Reynolds","Reynolds Sophia",NULL,"USRET",2012,"19 Market Street","San Francisco","CA","94105","US",3004,"Checking","Active","2022-03-22"
+4011,"2024-10-01 17:00:00","Debit","25.50","Food",1006,"Ms.","Ava","Garcia","Garcia Ava",NULL,"USRET",2014,"77 River Road","Austin","TX","73301","US",3006,"Checking","Active","2023-01-18"
+5032,"2024-10-01 13:09:33","Credit","1850.00","Customer prepayment",1010,"Ms.","Isabella","Lopez","Lopez Isabella",NULL,"RICH",2018,"321 Harbor Way","San Diego","CA","92101","US",3010,"Checking","Active","2021-04-12"
+4019,"2024-10-01 16:15:00","Debit","90.25","Utilities",1010,"Ms.","Isabella","Lopez","Lopez Isabella",NULL,"RICH",2018,"321 Harbor Way","San Diego","CA","92101","US",3010,"Checking","Active","2021-04-12"
+
+Expected records: 6

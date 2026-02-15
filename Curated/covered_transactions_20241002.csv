@@ -1,0 +1,5 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+5036,"2024-10-02 14:56:21","Debit","112.75","Janitorial supplies",1001,"Mr.","Ethan","Carter","Carter Ethan",NULL,"USRET",2001,"1452 Oak Street","Columbus","OH","43215","US",3001,"Checking","Active","2021-01-15"
+5034,"2024-10-02 08:22:05","Debit","620.00","Vehicle maintenance",1006,"Ms.","Ava","Garcia","Garcia Ava",NULL,"USRET",2014,"77 River Road","Austin","TX","73301","US",3006,"Checking","Active","2023-01-18"
+
+Expected records: 2

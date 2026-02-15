@@ -1,0 +1,7 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+4007,"2024-10-03 09:55:00","Debit","45.80","Coffee shop",1004,"Mrs.","Sophia","Reynolds","Reynolds Sophia",NULL,"USRET",2012,"19 Market Street","San Francisco","CA","94105","US",3004,"Checking","Active","2022-03-22"
+5013,"2024-10-03 15:45:09","Debit","215.30","Travel expense",1006,"Ms.","Ava","Garcia","Garcia Ava",NULL,"USRET",2014,"77 River Road","Austin","TX","73301","US",3006,"Checking","Active","2023-01-18"
+5038,"2024-10-03 10:58:44","Debit","189.00","SSL certificate renewal",1008,"Mr.","Lucas","Turner","Turner Lucas",NULL,"USRET",2016,"900 Broadway","New York","NY","10003","US",3008,"Checking","Active","2020-12-01"
+4015,"2024-10-03 10:40:00","Debit","60.00","Transit",1008,"Mr.","Lucas","Turner","Turner Lucas",NULL,"USRET",2016,"900 Broadway","New York","NY","10003","US",3008,"Checking","Active","2020-12-01"
+
+Expected records: 4

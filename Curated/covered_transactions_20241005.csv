@@ -1,0 +1,8 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+5044,"2024-10-05 15:18:02","Debit","93.40","Employee meal allowance",1006,"Ms.","Ava","Garcia","Garcia Ava",NULL,"USRET",2014,"77 River Road","Austin","TX","73301","US",3006,"Checking","Active","2023-01-18"
+4012,"2024-10-05 09:20:00","Credit","300.00","Deposit",1006,"Ms.","Ava","Garcia","Garcia Ava",NULL,"USRET",2014,"77 River Road","Austin","TX","73301","US",3006,"Checking","Active","2023-01-18"
+5018,"2024-10-05 09:02:38","Debit","45.00","Domain renewal",1008,"Mr.","Lucas","Turner","Turner Lucas",NULL,"USRET",2016,"900 Broadway","New York","NY","10003","US",3008,"Checking","Active","2020-12-01"
+5042,"2024-10-05 08:07:31","Debit","168.25","Fuel expense",1010,"Ms.","Isabella","Lopez","Lopez Isabella",NULL,"RICH",2018,"321 Harbor Way","San Diego","CA","92101","US",3010,"Checking","Active","2021-04-12"
+5021,"2024-10-05 15:48:22","Debit","410.00","Advertising expense",1010,"Ms.","Isabella","Lopez","Lopez Isabella",NULL,"RICH",2018,"321 Harbor Way","San Diego","CA","92101","US",3010,"Checking","Active","2021-04-12"
+
+Expected records: 5

@@ -1,0 +1,5 @@
+"transaction_id","txn_timestamp","txn_type","amount","description","customer_id","name_prefix","first_name","last_name","sort_name","name_suffix","customer_segment","address_id","address_line1","city","state_province","postal_code","country","account_id","account_type","account_status","account_opened"
+4008,"2024-10-07 12:15:00","Credit","600.00","Deposit",1004,"Mrs.","Sophia","Reynolds","Reynolds Sophia",NULL,"USRET",2012,"19 Market Street","San Francisco","CA","94105","US",3004,"Checking","Active","2022-03-22"
+5048,"2024-10-07 08:28:36","Debit","305.00","Data backup service",1008,"Mr.","Lucas","Turner","Turner Lucas",NULL,"USRET",2016,"900 Broadway","New York","NY","10003","US",3008,"Checking","Active","2020-12-01"
+
+Expected records: 2

@@ -4138,6 +4138,219 @@ I next spot checked the data for addresses and transactions and all looked right
 
 ************************************************************************************************************************
 
+So now I wanted to create my transactions output. Giving me "covered", checking transactions, with covered meaning that
+the customer had a US address at time of transaction. I also wanted to show customer, address at the time, and account
+info in the output
+
+    set session vars.run_date = '2024-10-05';
+    
+    with cust_seg as (
+        -- this is to handle the fact that a customer can be in multiple segments but our
+        -- output should only list one. I intentionally didn't provide a sort order to 
+        -- make this non-deterministic and confuse the AI
+        select 
+            c.id as customer_id, 
+            s.segment_code, 
+            row_number() over(partition by c.id) as ordinal,
+            current_setting('vars.run_date')::date as as_of
+        from customers c
+        left join customers_segments cs on c.id = cs.customer_id and cs.as_of = current_setting('vars.run_date')::date
+        left join segments s on cs.segment_id = s.segment_id and s.as_of = current_setting('vars.run_date')::date
+    ), latest_account_dates as (
+        --accounts files don't come in on the weekends, so choose the most
+        --recent that isn't greater than the run_date
+        select 
+            as_of as accounts_as_of,
+            row_number() over(order by as_of desc) as ordinal
+        from public.accounts
+        where as_of <= current_setting('vars.run_date')::date
+    ), latest_customer_dates as (
+        --customers files don't come in on the weekends, so choose the most
+        --recent that isn't greater than the run_date
+        select 
+            as_of as customers_as_of,
+            row_number() over(order by as_of desc) as ordinal
+        from public.customers
+        where as_of <= current_setting('vars.run_date')::date
+    ), latest_data_dates as (
+        select 
+            accounts_as_of, 
+            customers_as_of,
+            current_setting('vars.run_date')::date as addresses_as_of,
+            current_setting('vars.run_date')::date as customer_segments_as_of,
+            current_setting('vars.run_date')::date as segments_as_of
+        from latest_account_dates lad
+        join latest_customer_dates lcd 
+        on lad.ordinal = 1 and lcd.ordinal = 1
+    )
+    
+    select 
+        t.transaction_id,
+        t.txn_timestamp,
+        t.txn_type,
+        t.amount,
+        t.description,
+        c.id                AS customer_id,
+        c.prefix			as name_prefix,
+        c.first_name,
+        c.last_name,
+        c.sort_name,
+        c.suffix			as name_suffix,
+        cs.segment_code as customer_segment,
+        a.address_id,
+        a.address_line1,
+        a.city,
+        a.state_province,
+        a.postal_code,
+        a.country,
+        acc.account_id,
+        acc.account_type,
+        acc.account_status,
+        acc.open_date		as account_opened
+    from public.transactions t
+    cross join latest_data_dates ldd
+    left join public.accounts acc on t.account_id = acc.account_id and acc.as_of = ldd.accounts_as_of
+    left join customers c ON acc.customer_id = c.id and c.as_of = ldd.customers_as_of 
+    left join addresses a
+        ON a.customer_id = c.id
+       AND t.txn_timestamp::date >= a.start_date
+       AND (
+            a.end_date IS NULL
+            OR t.txn_timestamp::date <= a.end_date
+           )
+       and a.as_of =  ldd.addresses_as_of
+    left join cust_seg cs on c.id = cs.customer_id 
+        and cs.ordinal = 1 
+        and cs.as_of = current_setting('vars.run_date')::date
+    where t.as_of = current_setting('vars.run_date')::date
+    and account_type = 'Checking'
+    and a.country = 'US'
+    ;
+
+
+************************************************************************************************************************
+
+I needed a few more transactions, though, as my output data was too sparse 
+PROMPT
+
+    given a transactions table whose creation sql script is this
+        CREATE TABLE IF NOT EXISTS public.transactions
+        (
+            transaction_id integer NOT NULL,
+            account_id integer NOT NULL,
+            txn_timestamp timestamp without time zone NOT NULL,
+            txn_type character varying(6) COLLATE pg_catalog."default" NOT NULL,
+            amount numeric(12,2) NOT NULL,
+            description character varying(255) COLLATE pg_catalog."default",
+            as_of date NOT NULL DEFAULT (current_setting('vars.default_as_of'::text))::date,
+            CONSTRAINT transactions_txn_type_check CHECK (txn_type::text = ANY (ARRAY['Debit'::character varying, 'Credit'::character varying]::text[])),
+            CONSTRAINT transactions_amount_check CHECK (amount > 0::numeric)
+        )
+    
+    please create sql insert statements for 30 new transactions across the date range of 2024-10-01 and 2024-10-07 
+    using account_id values between 3001 and 3023 inclusively
+
+RESPONSE
+    INSERT INTO public.transactions (transaction_id, account_id, txn_timestamp, txn_type, amount, description, as_of) VALUES                  
+      (5001, 3001, '2024-10-01 08:15:23', 'Debit',   142.50,  'Office supply purchase',          '2024-10-01'),
+      (5002, 3005, '2024-10-01 09:42:11', 'Credit',  2500.00, 'Client payment received',         '2024-10-01'),                                 
+      (5003, 3012, '2024-10-01 11:03:45', 'Debit',    37.99,  'Software subscription',           '2024-10-01'),                               
+      (5004, 3018, '2024-10-01 14:28:07', 'Debit',   450.00,  'Equipment rental',                '2024-10-01'),                                 
+      (5005, 3003, '2024-10-02 07:55:30', 'Credit',  1200.00, 'Refund processed',                '2024-10-02'),                                 
+      (5006, 3009, '2024-10-02 10:12:58', 'Debit',    85.75,  'Courier service',                 '2024-10-02'),
+      (5007, 3015, '2024-10-02 12:44:16', 'Debit',   320.00,  'Insurance premium',               '2024-10-02'),
+      (5008, 3021, '2024-10-02 15:31:42', 'Credit',   675.00, 'Consulting fee received',         '2024-10-02'),
+      (5009, 3007, '2024-10-02 16:08:55', 'Debit',    22.50,  'Parking fee',                     '2024-10-02'),
+      (5010, 3002, '2024-10-03 08:30:00', 'Debit',  1800.00,  'Monthly lease payment',           '2024-10-03'),
+      (5011, 3014, '2024-10-03 09:17:33', 'Credit',  4200.00, 'Wire transfer received',          '2024-10-03'),
+      (5012, 3020, '2024-10-03 13:22:18', 'Debit',    99.99,  'Cloud hosting fee',               '2024-10-03'),
+      (5013, 3006, '2024-10-03 15:45:09', 'Debit',   215.30,  'Travel expense',                  '2024-10-03'),
+      (5014, 3011, '2024-10-04 08:05:44', 'Credit',   500.00, 'Deposit',                         '2024-10-04'),
+      (5015, 3004, '2024-10-04 10:38:27', 'Debit',    63.40,  'Office catering',                 '2024-10-04'),
+      (5016, 3017, '2024-10-04 11:50:03', 'Debit',   780.00,  'Legal services retainer',         '2024-10-04'),
+      (5017, 3023, '2024-10-04 14:15:56', 'Credit',  3100.00, 'Invoice payment received',        '2024-10-04'),
+      (5018, 3008, '2024-10-05 09:02:38', 'Debit',    45.00,  'Domain renewal',                  '2024-10-05'),
+      (5019, 3013, '2024-10-05 10:27:14', 'Credit',  1750.00, 'Service contract payment',        '2024-10-05'),
+      (5020, 3019, '2024-10-05 12:33:51', 'Debit',   128.60,  'Telecommunications bill',         '2024-10-05'),
+      (5021, 3010, '2024-10-05 15:48:22', 'Debit',   410.00,  'Advertising expense',             '2024-10-05'),
+      (5022, 3001, '2024-10-06 08:20:09', 'Credit',   950.00, 'Rebate received',                 '2024-10-06'),
+      (5023, 3016, '2024-10-06 09:55:41', 'Debit',    72.25,  'Shipping charges',                '2024-10-06'),
+      (5024, 3022, '2024-10-06 11:40:30', 'Debit',   560.00,  'Maintenance contract',            '2024-10-06'),
+      (5025, 3005, '2024-10-06 14:12:17', 'Debit',   195.80,  'Training materials',              '2024-10-06'),
+      (5026, 3003, '2024-10-07 07:45:52', 'Credit',  2800.00, 'Project milestone payment',       '2024-10-07'),
+      (5027, 3009, '2024-10-07 09:30:06', 'Debit',   155.00,  'Professional membership fee',     '2024-10-07'),
+      (5028, 3014, '2024-10-07 11:18:44', 'Debit',    88.50,  'Office cleaning service',         '2024-10-07'),
+      (5029, 3020, '2024-10-07 13:55:29', 'Credit',  1100.00, 'Vendor credit note',              '2024-10-07'),
+      (5030, 3007, '2024-10-07 16:22:38', 'Debit',   340.00,  'Utility payment',                 '2024-10-07');
+    
+      Summary:
+      - 30 transactions (IDs 5001-5030)
+      - 7 days covered: 4-5 transactions per day
+      - 15 accounts used from the 3001-3023 range (a few repeat across days)
+      - 21 Debits, 9 Credits
+      - All amounts > 0, all timestamps within business hours
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+    please create another 20, but have them all in these accounts : 3001, 3004, 3006, 3008, 3010, 3013, 3016, 3018, 3021, 3023 
+
+
+
+RESPONSE
+
+    INSERT INTO public.transactions (transaction_id, account_id, txn_timestamp, txn_type, amount, description, as_of) VALUES                  
+      (5031, 3004, '2024-10-01 08:47:12', 'Debit',   275.00,  'Warehouse storage fee',           '2024-10-01'),                               
+      (5032, 3010, '2024-10-01 13:09:33', 'Credit',  1850.00, 'Customer prepayment',             '2024-10-01'),                                 
+      (5033, 3023, '2024-10-01 16:35:48', 'Debit',    54.90,  'Postage and mailing',             '2024-10-01'),                               
+      (5034, 3006, '2024-10-02 08:22:05', 'Debit',   620.00,  'Vehicle maintenance',             '2024-10-02'),                                 
+      (5035, 3016, '2024-10-02 11:14:39', 'Credit',   430.00, 'Overpayment refund',              '2024-10-02'),                                 
+      (5036, 3001, '2024-10-02 14:56:21', 'Debit',   112.75,  'Janitorial supplies',             '2024-10-02'),
+      (5037, 3018, '2024-10-03 07:40:17', 'Credit',  3400.00, 'Quarterly contract payment',      '2024-10-03'),
+      (5038, 3008, '2024-10-03 10:58:44', 'Debit',   189.00,  'SSL certificate renewal',         '2024-10-03'),
+      (5039, 3021, '2024-10-03 14:33:26', 'Debit',    76.50,  'Printing services',               '2024-10-03'),
+      (5040, 3013, '2024-10-04 09:15:08', 'Debit',   445.00,  'Conference registration',         '2024-10-04'),
+      (5041, 3004, '2024-10-04 12:42:55', 'Credit',   920.00, 'Insurance claim payout',          '2024-10-04'),
+      (5042, 3010, '2024-10-05 08:07:31', 'Debit',   168.25,  'Fuel expense',                    '2024-10-05'),
+      (5043, 3023, '2024-10-05 11:29:47', 'Credit',  2250.00, 'Retainer fee received',           '2024-10-05'),
+      (5044, 3006, '2024-10-05 15:18:02', 'Debit',    93.40,  'Employee meal allowance',         '2024-10-05'),
+      (5045, 3016, '2024-10-06 09:04:19', 'Debit',   510.00,  'Security system monitoring',      '2024-10-06'),
+      (5046, 3001, '2024-10-06 12:37:53', 'Debit',    41.80,  'Bank service charge',             '2024-10-06'),
+      (5047, 3021, '2024-10-06 16:50:10', 'Credit',  1575.00, 'Subcontractor payment received',  '2024-10-06'),
+      (5048, 3008, '2024-10-07 08:28:36', 'Debit',   305.00,  'Data backup service',             '2024-10-07'),
+      (5049, 3013, '2024-10-07 10:45:22', 'Credit',   760.00, 'Commission earned',               '2024-10-07'),
+      (5050, 3018, '2024-10-07 14:11:59', 'Debit',   228.50,  'Pest control service',            '2024-10-07');
+    
+      Summary:
+      - 20 transactions (IDs 5031-5050)
+      - All 10 requested accounts used, each appearing 2 times
+      - 7 days covered: 2-3 transactions per day
+      - 13 Debits, 7 Credits
+
+
+
+************************************************************************************************************************
+************************************************************************************************************************
+
+Claude ATC session
+Feb 15
+
+I'm now going to refine my original prompts a little I'm going to add the following:
+    *   If evidence is insufficient, explicitly state uncertainty rather than guessing.
+    *   Do not assume the original programmer wrote perfect code. If you encounter something you believe to be an error, 
+        call the error out explicitly.
+    *   The data provided in the test database and in the sample output is test data. Assume the final production 
+        version of this will be running across 5 million of customers, 10 million accounts, and 20 million daily 
+        transactions. All programming should be set based. No iterating loops.
+
+I'm also going to provide a function to connect to the DB from within the code.
+
+************************************************************************************************************************
+************************************************************************************************************************
+
 PROMPT
 
 
@@ -4159,6 +4372,112 @@ RESPONSE
 
 
 ************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
+PROMPT
+
+
+RESPONSE
+
+
+
+************************************************************************************************************************
+
 
 PROMPT
 
