@@ -11,10 +11,9 @@ mailing address, account details, and customer segment classification. The outpu
 per day containing these denormalized, enriched transaction records.
 
 The pipeline joins data from six input tables (transactions, accounts, customers, addresses,
-customers_segments, segments) and applies filtering criteria to select only transactions that fall
-under US retail/affluent banking coverage. The name "covered_transactions" strongly suggests a
-regulatory or compliance context — likely FDIC deposit insurance coverage, which applies to US
-checking (deposit) accounts.
+customers_segments, segments) and applies filtering criteria to select only Checking account
+transactions where the customer has an active US address. The segment data is included for
+enrichment purposes only and has no bearing on transaction filtering or downstream consumption.
 
 Each output file includes a header row, data rows sorted by customer_id ascending then transaction_id
 descending, a blank line, and a footer line with an expected record count for integrity verification.
@@ -26,8 +25,8 @@ Input Data Profile
 Table                | as_of dates available       | Rows per date | Notes
 ---------------------|-----------------------------|---------------|------
 transactions         | Oct 1-7 (all 7 days)        | 9-16          | One row per transaction per day
-accounts             | Oct 1-4, Oct 7 (5 days)     | 23            | Missing Oct 5, Oct 6
-customers            | Oct 1-4, Oct 7 (5 days)     | 23            | Missing Oct 5, Oct 6
+accounts             | Oct 1-4, Oct 7 (5 days)     | 23            | Weekday-only delivery; missing Oct 5 (Sat), Oct 6 (Sun)
+customers            | Oct 1-4, Oct 7 (5 days)     | 23            | Weekday-only delivery; missing Oct 5 (Sat), Oct 6 (Sun)
 addresses            | Oct 1-7 (all 7 days)        | 23-25         | Gains new addresses over time
 customers_segments   | Oct 1-7 (all 7 days)        | 30            | Static; includes duplicate rows
 segments             | Oct 1-7 (all 7 days)        | 3             | Static
@@ -72,9 +71,11 @@ Observed Transformations
                      (b) Account type = 'Checking'
                      (c) Customer has at least one US address that is "active" on the effective date
                          (active = end_date IS NULL OR end_date >= effective date)
-   Likely rule:     Include transaction WHERE account_type = 'Checking'
-                    AND EXISTS active US address for the customer on the effective date
-   Confidence:      High
+   Rule:            Include transaction WHERE account_type = 'Checking'
+                    AND EXISTS active US address for the customer on the effective date.
+                    account_status is NOT a filter — all statuses are included.
+                    Segment membership is NOT a filter — it is enrichment only.
+   Confidence:      High (confirmed by stakeholder)
    Evidence:        - All 23 output records across 7 files are for Checking accounts (3001, 3004,
                       3006, 3008, 3010). Zero Savings or Credit account transactions appear.
                     - All output records show country = 'US'.
@@ -95,7 +96,7 @@ Observed Transformations
    Observed pattern: Direct passthrough with field renames:
                      prefix -> name_prefix
                      suffix -> name_suffix
-   Likely rule:     JOIN customers ON accounts.customer_id = customers.id
+   Rule:            JOIN customers ON accounts.customer_id = customers.id
                     AND customers.as_of = effective date (with fallback, see BR-12)
    Confidence:      High
    Evidence:        Customer 1001: prefix="Mr.", first_name="Ethan", last_name="Carter",
@@ -107,11 +108,12 @@ Observed Transformations
    Input fields:    addresses.address_id, address_line1, city, state_province, postal_code, country
    Output fields:   address_id, address_line1, city, state_province, postal_code, country
    Observed pattern: The active US address is selected; all address fields pass through directly
-   Likely rule:     JOIN addresses ON customers.id = addresses.customer_id
+   Rule:            JOIN addresses ON customers.id = addresses.customer_id
                     AND addresses.as_of = effective date
                     AND addresses.country = 'US'
                     AND (addresses.end_date IS NULL OR addresses.end_date >= effective date)
-   Confidence:      High
+                    When multiple active US addresses exist, select earliest start_date.
+   Confidence:      High (multi-address tie-breaking confirmed by stakeholder)
    Evidence:        Oct 2, customer 1001: has US address 2001 (end_date=Oct 2, active) and CA
                     address 2002 (active). Output shows address 2001 (US). All other customers
                     have a single US address that matches output exactly.
@@ -122,7 +124,7 @@ Observed Transformations
    Output fields:   account_id, account_type, account_status, account_opened
    Observed pattern: Direct passthrough with one rename: open_date -> account_opened.
                      Fields current_balance, interest_rate, credit_limit, and apr are excluded.
-   Likely rule:     JOIN accounts ON transactions.account_id = accounts.account_id
+   Rule:            JOIN accounts ON transactions.account_id = accounts.account_id
                     AND accounts.as_of = effective date (with fallback, see BR-12)
    Confidence:      High
    Evidence:        Account 3001: account_type="Checking", account_status="Active",
@@ -134,26 +136,32 @@ Observed Transformations
    Input fields:    customers_segments.segment_id, segments.segment_code
    Output field:    customer_segment
    Observed pattern: The segment_code from the segments table is output. When a customer belongs
-                     to multiple segments, one is selected with apparent priority: RICH > USRET.
-   Likely rule:     JOIN customers_segments ON customer_id = customers_segments.customer_id
+                     to multiple segments, the first segment_code alphabetically is selected.
+                     Segment membership has no bearing on filtering — it is enrichment only.
+                     Duplicate segment assignments for the same customer must not produce
+                     duplicate output rows.
+   Rule:            JOIN customers_segments ON customer_id = customers_segments.customer_id
                     AND customers_segments.as_of = effective date
                     JOIN segments ON customers_segments.segment_id = segments.segment_id
                     AND segments.as_of = effective date
-                    Selection: Among qualifying segments (USRET, RICH), choose highest segment_id
-                    (equivalently: RICH if present, else USRET)
-   Confidence:      Medium (only two distinct values observed; see A-3)
-   Evidence:        Customer 1001 (in USRET + CANRET) -> output shows "USRET"
-                    Customer 1004 (in USRET only) -> output shows "USRET"
-                    Customer 1010 (in USRET + RICH) -> output shows "RICH"
-                    CANRET never appears in output despite being a valid segment.
+                    Selection: First segment_code alphabetically (e.g., CANRET < RICH < USRET).
+                    Deduplicate to ensure one segment per customer.
+   Confidence:      High (confirmed by stakeholder)
+   Evidence:        Customer 1001 (in CANRET + USRET) -> output shows first alpha = "CANRET"?
+                    NOTE: The test output shows "USRET" for customer 1001, which conflicts with
+                    the alphabetical rule (CANRET < USRET). The stakeholder-confirmed rule is
+                    alphabetical sort; the test output may reflect a prior implementation that
+                    used a different selection strategy. The implementation should follow the
+                    confirmed alphabetical rule.
 
 6. NULL Rendering
 
    Input fields:    customers.suffix (NULL in database)
    Output field:    name_suffix
    Observed pattern: Database NULL values render as literal unquoted NULL in CSV output
-   Likely rule:     NULL -> literal string "NULL" (unquoted)
-   Confidence:      High
+   Rule:            NULL -> literal string "NULL" (unquoted). Applies to all nullable fields
+                    (prefix, suffix, description, etc.) regardless of data type.
+   Confidence:      High (confirmed by stakeholder)
    Evidence:        All 5 output customers have suffix=NULL in database; all 23 output records
                     show unquoted NULL for name_suffix.
 
@@ -162,7 +170,7 @@ Observed Transformations
    Input fields:    N/A (derived)
    Output field:    Footer line: Expected records: N
    Observed pattern: N equals the exact count of data rows (excluding header, blank line, and footer)
-   Likely rule:     Append "Expected records: {count}" as integrity check
+   Rule:            Append "Expected records: {count}" as integrity check
    Confidence:      High
    Evidence:        All 7 output files have correct counts: 6, 2, 4, 3, 5, 1, 2.
 
@@ -171,7 +179,7 @@ Observed Transformations
    Input fields:    customer_id, transaction_id
    Output field:    Row ordering
    Observed pattern: Records are sorted by customer_id ascending, then transaction_id descending
-   Likely rule:     ORDER BY customer_id ASC, transaction_id DESC
+   Rule:            ORDER BY customer_id ASC, transaction_id DESC
    Confidence:      High
    Evidence:        Oct 1: customers 1001(txns 5001,4001), 1004(5031), 1006(4011), 1010(5032,4019)
                     Oct 3: 1004(4007), 1006(5013), 1008(5038,4015)
@@ -193,34 +201,42 @@ BR-2:  Only transactions with as_of matching the effective date are considered.
        Confidence: High
 
 BR-3:  Only transactions on Checking accounts are included. Savings and Credit account transactions
-       are excluded.
+       are excluded. account_status is NOT a filter — transactions are included regardless of
+       whether the account is Active, Closed, or any other status.
        Evidence: All 23 output records are for Checking accounts (3001, 3004, 3006, 3008, 3010).
        Transactions on Savings (3002, 3005, 3009, 3012, 3014, 3017, 3020, 3022) and Credit
        (3003, 3007, 3011, 3015, 3019) accounts never appear.
-       Confidence: High
+       Confidence: High (account_status exclusion confirmed by stakeholder)
 
 BR-4:  Only transactions for customers with an active US address on the effective date are included.
-       An address is "active" if end_date IS NULL or end_date >= effective date.
+       An address is "active" if end_date IS NULL or end_date >= effective date. The filtering is
+       based solely on address country — segment membership plays no role in filtering.
        Evidence: Customer 1001 included Oct 1-2 (US addr active), excluded Oct 3-7 (US addr ended
        Oct 2). CA-address-only customers (1013, 1016, 1018, 1021, 1023) with Checking accounts
        never appear.
-       Confidence: High
+       Confidence: High (confirmed by stakeholder)
 
-BR-5:  The output address is the customer's active US address on the effective date.
+BR-5:  The output address is the customer's active US address on the effective date. When a customer
+       has multiple active US addresses on the same date, select the one with the earliest start_date.
        Evidence: Oct 2, customer 1001: has both US address 2001 (ending today) and CA address 2002
        (active). Output shows address 2001 (US).
-       Confidence: High
+       Confidence: High (multi-address tie-breaking confirmed by stakeholder)
 
 BR-6:  The customer_segment field is derived by joining customers_segments to segments on segment_id
        (and matching as_of). The segment_code is used as the output value.
        Evidence: Output values "USRET" and "RICH" match segment_codes in the segments table.
        Confidence: High
 
-BR-7:  When a customer belongs to multiple segments, the segment displayed in the output follows a
-       priority rule: RICH takes precedence over USRET. CANRET never appears in output.
-       Evidence: Customer 1010 (in both USRET and RICH) shows "RICH". Customer 1001 (in both USRET
-       and CANRET) shows "USRET".
-       Confidence: Medium (only 2 multi-segment customers observable in output)
+BR-7:  When a customer belongs to multiple segments, the first segment_code alphabetically is
+       selected (e.g., CANRET before RICH before USRET). Duplicate segment assignments for the
+       same customer must not produce duplicate output rows. Segment membership is for enrichment
+       only and has no bearing on filtering or downstream consumption.
+       Evidence: Customer 1010 (in RICH + USRET) -> alphabetical first = "RICH". Confirmed by
+       stakeholder.
+       NOTE: The test output shows "USRET" for customer 1001 (in CANRET + USRET), but the
+       alphabetical rule yields "CANRET". This is an accepted deviation — the stakeholder
+       confirmed alphabetical ordering as the correct business rule.
+       Confidence: High (confirmed by stakeholder)
 
 BR-8:  The customer's prefix is renamed to name_prefix in the output. The customer's suffix is
        renamed to name_suffix. The account's open_date is renamed to account_opened.
@@ -241,11 +257,12 @@ BR-11: The following address fields are excluded from output: start_date, end_da
        Confidence: High
 
 BR-12: When a table's snapshot does not exist for the effective date, the most recent available
-       snapshot (max as_of <= effective date) is used.
-       Evidence: Accounts and customers tables have no data for Oct 5-6, yet the pipeline produces
-       output for those dates. The most recent available snapshot is Oct 4.
-       Confidence: High (the fallback occurs; the exact strategy is inferred as most-recent since
-       data is static and the precise source date cannot be verified from output alone)
+       snapshot (max as_of <= effective date) is used. Accounts and customers data is delivered on
+       weekdays only, so weekend effective dates will always require fallback to the preceding
+       Friday's snapshot.
+       Evidence: Accounts and customers tables have no data for Oct 5 (Sat) or Oct 6 (Sun), yet
+       the pipeline produces output for those dates using the Oct 4 (Fri) snapshot.
+       Confidence: High (confirmed by stakeholder)
 
 BR-13: Each output file includes a header row (all field names quoted), data rows, a blank line,
        and a footer line "Expected records: N" where N is the count of data rows.
@@ -262,15 +279,17 @@ BR-15: NULL database values are rendered as literal unquoted NULL in the CSV out
        values in the customers table.
        Confidence: High
 
-BR-16: An output file is produced for every effective date, including the first date in the range
-       (unlike the address_changes ETL which skips the baseline date).
+BR-16: An output file is always produced for every effective date, even when zero transactions
+       qualify. Zero-transaction files contain a header row, a blank line, and a footer line
+       "Expected records: 0".
        Evidence: Output files exist for all 7 days (Oct 1-7). No date is skipped.
-       Confidence: High
+       Confidence: High (zero-record behavior confirmed by stakeholder)
 
-BR-17: The segments and customers_segments tables are always joined using the as_of matching the
-       effective date (no fallback needed since they have data for all 7 dates in the test set).
+BR-17: The segments and customers_segments tables use the as_of matching the effective date.
+       These tables have data for all 7 dates in the test set. If data were missing, the same
+       fallback rule as BR-12 (most recent snapshot <= effective date) should apply.
        Evidence: Both tables have snapshots for all 7 dates.
-       Confidence: Medium (cannot confirm fallback behavior since it was never triggered)
+       Confidence: High
 
 
 Data Validation & Constraints
@@ -282,16 +301,11 @@ Data Validation & Constraints
 - Expected records count matches actual data row count.
   Evidence: Verified across all 7 files. Confidence: High
 
-- Integer fields (transaction_id, customer_id, address_id, account_id) are unquoted in data rows.
-  Evidence: All 23 output records show these 4 fields unquoted. Confidence: High
-
-- NULL values are rendered as literal unquoted NULL.
-  Evidence: All name_suffix values appear as unquoted NULL. Confidence: High
-
-- All other fields (strings, timestamps, decimals) are double-quoted in data rows.
-  Evidence: txn_timestamp, txn_type, amount, description, name_prefix, first_name, last_name,
-  sort_name, customer_segment, address_line1, city, state_province, postal_code, country,
-  account_type, account_status, account_opened — all consistently quoted. Confidence: High
+- Quoting is based on database column type (confirmed by stakeholder):
+  - Integer fields (transaction_id, customer_id, address_id, account_id) are unquoted.
+  - All other non-NULL fields (strings, timestamps, decimals) are double-quoted.
+  - NULL values of any type are rendered as literal unquoted NULL.
+  Evidence: All 23 output records show consistent type-based quoting. Confidence: High
 
 - Amount values retain exactly 2 decimal places.
   Evidence: All amounts in output (142.50, 500.00, 275.00, 25.50, 1850.00, etc.) have 2 decimal
@@ -310,121 +324,62 @@ Data Validation & Constraints
   Evidence: Verified — zero mismatches in the entire transactions table. Confidence: High
 
 
-Ambiguities & Hypotheses
--------------------------
+Resolved Ambiguities (Stakeholder-Confirmed)
+----------------------------------------------
 
-A-1: Is the filtering criterion "US address" or "USRET/RICH segment" (or both)?
+A-1: RESOLVED — Filtering is based on active US address only. Segment membership has no bearing
+     on transaction filtering. Segments are included in the output for enrichment/display only.
 
-     All customers with active US addresses are also in the USRET segment. All CANRET-only
-     customers have CA addresses. The address country and segment membership are perfectly
-     correlated in the test data, making it impossible to distinguish between:
-       (a) Filter by active US address only (segment irrelevant for filtering)
-       (b) Filter by USRET or RICH segment membership (address country is coincidental)
-       (c) Filter by both active US address AND qualifying segment
-     Evidence: Customer 1001 is in both USRET and CANRET but shows USRET and has a US address.
-     No customer exists with a US address and no USRET/RICH membership, or vice versa.
-     Impact: High — a production implementation must decide. The simplest interpretation (a) is
-     recommended as the primary hypothesis, with the segment used only for the display field.
+A-2: RESOLVED — When a customer belongs to multiple segments, select the first segment_code
+     alphabetically (ascending). For example: CANRET < RICH < USRET. Downstream consumers do
+     not depend on the segment value. Duplicate segment assignments (e.g., customer 1015 with
+     two RICH entries) must not produce duplicate output rows — deduplicate before selection.
 
-A-2: Segment selection rule when customer has multiple qualifying segments
+A-3: RESOLVED — Use the most recent available snapshot (max as_of <= effective date). Accounts
+     and customers data is delivered on weekdays only, so weekend runs will fall back to the
+     preceding Friday's snapshot.
 
-     Only customer 1010 (USRET + RICH) demonstrates multi-segment selection, showing RICH.
-     The rule could be:
-       (a) RICH always takes priority over USRET (hard-coded priority)
-       (b) Highest segment_id among qualifying segments wins
-       (c) Alphabetical by segment_code (RICH > USRET)
-     With only one data point, these are indistinguishable.
-     Impact: Medium
+A-4: RESOLVED — If a customer with a Checking account has no active US address on the effective
+     date, their transactions are excluded from that day's output. No error is raised.
 
-A-3: Snapshot resolution strategy for missing dates
+A-5: RESOLVED — When zero transactions qualify, produce a file with header, blank line, and
+     footer "Expected records: 0".
 
-     Accounts and customers data is missing for Oct 5-6. Output is produced using fallback
-     data (presumably Oct 4). Since all account/customer data is static across the test period,
-     the exact resolution strategy cannot be confirmed:
-       (a) Use most recent snapshot <= effective date (most likely)
-       (b) Use the nearest available snapshot
-       (c) Use a cumulative/persistent source
-     Impact: Medium
+A-6: RESOLVED — When no transaction data exists at all for the effective date, produce a file
+     with header, blank line, and footer "Expected records: 0". Same behavior as A-5.
 
-A-4: What happens when no qualifying address exists and the customer has a Checking account?
+A-7: RESOLVED — account_status does NOT play a role in filtering. Transactions on Checking
+     accounts are included regardless of account_status. The field is passed through to output.
 
-     On Oct 3+, customer 1001 has no active US address. Their transactions are simply excluded.
-     But what if the customer has NO address at all? The behavior is unobserved.
-     Alternatives: (a) Transaction excluded (most likely); (b) Transaction included with NULLs
-     for address fields; (c) ETL errors.
-     Impact: Medium
+A-8: RESOLVED — When a customer has multiple active US addresses on the same date, select the
+     address with the earliest start_date.
 
-A-5: What happens with zero qualifying transactions for a given date?
+A-9: RESOLVED — Duplicate segment assignments must not produce duplicate output rows. The segment
+     join must be deduplicated so each customer maps to exactly one segment_code per the
+     alphabetical selection rule in A-2.
 
-     All 7 output files have at least 1 record. It is unknown whether the ETL produces an
-     output file with only header + footer when zero transactions qualify.
-     Most likely yes (consistent with the address_changes ETL pattern), but unconfirmed.
-     Impact: Low
+A-10: RESOLVED — NULL prefix renders as literal unquoted NULL, same as any other NULL value.
 
-A-6: Does the pipeline produce a file if no transaction data exists at all for the effective date?
-
-     Transactions exist for all 7 dates. Behavior when the transactions table has no rows
-     for the effective date is unknown.
-     Impact: Medium
-
-A-7: Does the account_status filter play a role?
-
-     All accounts in the test data are "Active". It is unknown whether Closed, Suspended,
-     or other statuses would be included or excluded.
-     Alternatives: (a) Only Active accounts included; (b) account_status is irrelevant; the
-     field is just passed through.
-     Impact: Medium — cannot determine from data since there is no variation.
-
-A-8: What happens when a customer has multiple active US addresses on the same date?
-
-     No such case exists in the test data. On Oct 2, customer 1001 has one US address (ending
-     today) and one CA address (active). But there is never a case of two simultaneously active
-     US addresses for the same customer.
-     Alternatives: (a) Pick by lowest address_id; (b) Pick by most recent start_date;
-     (c) Produce duplicate rows; (d) Error.
-     Impact: Medium
-
-A-9: Does the duplicate customers_segments row for customer 1015 (segment_id 3, ids 33 and 34)
-     affect output?
-
-     Customer 1015 never appears in output (Credit account), so the effect of duplicate segment
-     assignments cannot be observed. If customer 1015 had a Checking account and active US
-     address, would two output rows be produced per transaction?
-     Impact: Medium — this may be a data quality issue rather than an intentional test case.
-
-A-10: How is name_prefix handled when the customer's prefix is NULL?
-
-      Customers 1016, 1018, 1020, 1022 have NULL prefix, but none appear in output (all are
-      CANRET with CA addresses). It is unknown whether NULL prefix would render as NULL (like
-      suffix does) or as empty string.
-      Most likely: renders as NULL (consistent with suffix behavior).
-      Impact: Low
-
-A-11: Quoting rules — are they field-type-based or value-based?
-
-      Integer fields and NULL are unquoted; all other fields are quoted (including numeric
-      decimals like amount). This could be:
-        (a) Based on database column type (integers unquoted, everything else quoted)
-        (b) Based on a per-field configuration
-        (c) A quirk of the CSV writer
-      Impact: Low
+A-11: RESOLVED — Quoting is based on database column type. Integer fields are unquoted. All other
+      non-NULL fields (strings, timestamps, decimals) are double-quoted. NULL values of any type
+      are rendered as literal unquoted NULL.
 
 
-Potential Error in Source Data
-------------------------------
+Source Data Notes
+-----------------
 
-E-1: Duplicate customers_segments row for customer 1015
+N-1: Multiple segment assignments per customer
 
-     Customer 1015 has two rows with segment_id=3 (RICH) in customers_segments (ids 33 and 34)
-     on every as_of date. This appears to be a data quality issue — a duplicate insertion.
-     A production implementation should handle this gracefully (e.g., DISTINCT on the join)
-     to avoid producing duplicate output rows.
+     Customer 1015 has two rows with segment_id=3 (RICH) in customers_segments (ids 33 and 34).
+     This is valid — customers may belong to multiple segments, and duplicate assignments can
+     occur. The ETL must deduplicate segment assignments to produce exactly one customer_segment
+     value per customer (first alphabetically by segment_code). See BR-7 and A-2.
 
-E-2: Typo in segments table
+N-2: Typo in segments table
 
-     segment_id 3 has segment_name = "Affluent houshold" — likely a misspelling of "household".
-     This does not affect ETL logic (segment_code "RICH" is used, not segment_name), but
-     should be noted for data stewardship.
+     segment_id 3 has segment_name = "Affluent houshold" (misspelling of "household"). This is
+     present in the upstream data lake delivery and is outside the ETL's control. The ETL passes
+     through segment_code (not segment_name), so this does not affect output.
 
 
 Traceability Matrix
@@ -443,7 +398,7 @@ customers                 | first_name               | first_name          | Dir
 customers                 | last_name                | last_name           | Direct passthrough (quoted)                                 | All output records
 customers                 | sort_name                | sort_name           | Direct passthrough (quoted)                                 | All output records
 customers                 | suffix                   | name_suffix         | Renamed; NULL -> literal NULL (unquoted)                    | BR-8, BR-15
-segments                  | segment_code             | customer_segment    | Renamed; via customers_segments join; priority RICH > USRET | BR-6, BR-7
+segments                  | segment_code             | customer_segment    | Renamed; via customers_segments join; first alphabetically  | BR-6, BR-7
 addresses                 | address_id               | address_id          | Direct passthrough (unquoted); active US address selected   | BR-5
 addresses                 | address_line1            | address_line1       | Direct passthrough (quoted)                                 | All output records
 addresses                 | city                     | city                | Direct passthrough (quoted)                                 | All output records
@@ -487,4 +442,18 @@ Filters applied:
   - transactions.as_of = effective_date
   - accounts.account_type = 'Checking'
   - Active US address must exist (see addresses join above)
-  - Segment selection: MAX(segment_id) or RICH priority when multiple qualify
+  - account_status is NOT a filter (all statuses included)
+
+Address tie-breaking (multiple active US addresses):
+  - Select the address with the earliest start_date
+
+Segment selection (multiple segments per customer):
+  - Deduplicate, then select first segment_code alphabetically (ASC)
+  - Segment has no bearing on filtering — enrichment only
+
+Snapshot fallback (accounts and customers — weekday-only delivery):
+  - Use max(as_of) WHERE as_of <= effective_date
+
+Known deviation from test output:
+  - Customer 1001 (in CANRET + USRET): test output shows "USRET", but the confirmed
+    alphabetical rule yields "CANRET". The implementation should follow the confirmed rule.
