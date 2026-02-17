@@ -1,0 +1,187 @@
+================================================================================
+Agent Teams Journey - Session Log
+Started: 2026-02-17
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 1:
+--------------------------------------------------------------------------------
+Let's start a completely new session. Forget the prior context. Please see the
+file /media/dan/fdrive/codeprojects/AtcPoc/AtcPoc/Documentation/AgentTeamsJourney.txt.
+I want you to keep a record of this session's prompts and responses in that file.
+Including this prompt. Can you do that?
+
+--------------------------------------------------------------------------------
+RESPONSE 1:
+--------------------------------------------------------------------------------
+Yes! The file exists but was essentially empty. I've started the session journal
+and recorded this first exchange. I'll continue appending each prompt and
+response to this file as we go throughout our session.
+
+--------------------------------------------------------------------------------
+PROMPT 2:
+--------------------------------------------------------------------------------
+This is a hypothetical situation. I am role playing to further my education.
+
+I manage a big data platform for a very large company. We have approximately
+10,000 daily ETL jobs running on this platform and many terabytes of data. We
+have it structured with a raw data lake that stores everything in delta lake
+parquet and our ETL jobs read from the data lake, transform the data and publish
+the transformation results to a curated layer that is separate from the data
+lake. I am looking to set up an agent-teams configuration of Claude agents to
+review the portfolio of ETL jobs, review reports from our financial operations
+teams, determine likely candidates for rewriting, review existing code, review
+existing data, infer business requirements from existing code, create test cases
+and automated tests, write functional specifications, re-write the code using
+best practices, test the code, run standard static analysis tools, and promote
+the new code to production. What should my agent teams structure be?
+
+--------------------------------------------------------------------------------
+RESPONSE 2:
+--------------------------------------------------------------------------------
+Proposed a 5-tier agent teams architecture:
+
+TIER 1 - DISCOVERY & PRIORITIZATION:
+  - Portfolio Scanner: crawls ETL catalog, extracts metadata, health scores
+  - Financial Ops Analyst: ingests finance reports, incident tickets, cost data
+  - Prioritization Orchestrator: synthesizes above, ranks rewrite candidates
+
+TIER 2 - ANALYSIS & SPECIFICATION:
+  - Code Reviewer: reads existing ETL code, documents transformations, finds
+    anti-patterns, maps source-to-target lineage
+  - Data Profiler: profiles data in raw/curated layers, schemas, distributions
+  - Requirements Inferencer: reverse-engineers business rules from code + data
+  - Spec Writer: produces formal functional specification
+
+TIER 3 - TEST ENGINEERING:
+  - Test Case Designer: generates test cases from functional spec
+  - Test Data Generator: creates representative test datasets
+  - Test Harness Builder: writes automated executable test scripts
+
+TIER 4 - REWRITE & VALIDATION:
+  - Code Writer: rewrites ETL using best practices
+  - Static Analyzer: runs linters, security scanners, style checkers
+  - Test Runner: executes test suite against new code
+  - Validation Reconciler: parallel-runs old vs new, reconciles outputs
+
+TIER 5 - PROMOTION & OVERSIGHT:
+  - Deployment Agent: packages code, manages PRs, environment promotion
+  - Supervisor/Orchestrator: top-level agent managing full pipeline
+
+KEY DESIGN PRINCIPLES:
+  1. Human gates between tiers (especially before production promotion)
+  2. One job at a time through pipeline (parallelizable across jobs)
+  3. Supervisor holds state (kanban-like tracking)
+  4. Confidence thresholds drive escalation to humans
+  5. Reconciliation is non-negotiable before production
+
+SUGGESTED PHASING:
+  Phase 1: Tier 1 + Supervisor (prioritized backlog)
+  Phase 2: Tier 2 (spec generation, heavy human review)
+  Phase 3: Tiers 3+4 together (test-then-rewrite loop)
+  Phase 4: Tier 5 deployment automation last
+
+--------------------------------------------------------------------------------
+PROMPT 3:
+--------------------------------------------------------------------------------
+Please recommend prompts I can give you later to start this process.
+(Also asked: "I see that you keep hitting errors. Is my prompt too vague?")
+
+--------------------------------------------------------------------------------
+RESPONSE 3:
+--------------------------------------------------------------------------------
+No, the prompt was not vague. Errors were transient tool issues, not a problem
+with the request. Provided the following recommended starter prompts by phase:
+
+PHASE 1: DISCOVERY & PRIORITIZATION
+====================================
+
+Prompt 1A - Portfolio Scan:
+  "Read the file AgentTeamsJourney.txt for context. I have a catalog of our ETL
+  jobs at [path/location]. Please scan the catalog and build an inventory
+  including: job name, schedule frequency, average runtime, failure rate,
+  upstream/downstream dependencies, data volumes processed, and last modified
+  date. Score each job's health on a 1-10 scale and output a ranked summary."
+
+Prompt 1B - Financial Ops Analysis:
+  "Read the file AgentTeamsJourney.txt for context. Here are reports from our
+  financial operations team at [path/location]. Please analyze these for:
+  support ticket volume per job/job-family, cost allocations, SLA breaches,
+  and incident frequency. Rank the most expensive and most problematic jobs."
+
+Prompt 1C - Prioritization:
+  "Read the file AgentTeamsJourney.txt for context. Using the portfolio
+  inventory at [path] and the financial analysis at [path], produce a
+  prioritized rewrite backlog. Weight by: operational cost (30%), failure
+  frequency (25%), code age/complexity (20%), business criticality (15%),
+  and rewrite difficulty (10%). Give me the top 20 candidates with
+  justification."
+
+PHASE 2: ANALYSIS & SPECIFICATION (per job)
+=============================================
+
+Prompt 2A - Code Review:
+  "Read AgentTeamsJourney.txt for context. Review the ETL job code at [path].
+  Document: all source-to-target mappings, transformation logic, filter
+  conditions, join logic, aggregations, SCD handling, error handling, and any
+  anti-patterns. Output a structured code analysis report."
+
+Prompt 2B - Data Profiling:
+  "Read AgentTeamsJourney.txt for context. Profile the input and output data
+  for ETL job [name]. The raw layer tables are at [paths] and curated output
+  is at [paths]. Report: row counts, schema, column distributions, null rates,
+  cardinality, min/max/mean for numerics, and any anomalies."
+
+Prompt 2C - Requirements & Spec:
+  "Read AgentTeamsJourney.txt for context. Using the code analysis at [path]
+  and data profiles at [path], infer the business requirements for this ETL
+  job. Then write a functional specification covering: purpose, business
+  rules, input/output contracts, error handling expectations, SLA
+  requirements, and edge cases. Flag anything where your confidence is
+  below 80%."
+
+PHASE 3: TEST ENGINEERING
+==========================
+
+Prompt 3A:
+  "Read AgentTeamsJourney.txt for context. Using the functional spec at [path]
+  and data profiles at [path], generate: (1) a comprehensive test case
+  inventory covering happy path, edge cases, null handling, boundary
+  conditions, and regression scenarios; (2) executable automated tests using
+  [pytest/Great Expectations/your framework]; (3) test data requirements or
+  synthetic test data generation scripts."
+
+PHASE 4: REWRITE & VALIDATION
+===============================
+
+Prompt 4A - Rewrite:
+  "Read AgentTeamsJourney.txt for context. Using the functional spec at [path],
+  existing code at [path] as reference, and test suite at [path], rewrite this
+  ETL job following these best practices: idempotent processing, schema
+  evolution support, incremental/merge processing where appropriate, proper
+  partitioning, structured error handling, and logging. The target framework
+  is [Spark/dbt/etc]."
+
+Prompt 4B - Validate:
+  "Read AgentTeamsJourney.txt for context. Run the test suite at [path] against
+  the rewritten code at [path]. Also run static analysis using
+  [pylint/sqlfluff/sonarqube]. Produce a validation report. Then compare the
+  new code's output against the baseline output at [path] and produce a
+  reconciliation report with match percentages."
+
+KEY TIPS FOR USING THESE PROMPTS:
+  1. Always reference the journal file for continuity across sessions
+  2. Fill in the [bracketed] values with actual paths and tool choices
+  3. Start with one job as a pilot before scaling to many
+  4. Append results to the journal each session
+
+--------------------------------------------------------------------------------
+PROMPT 4:
+--------------------------------------------------------------------------------
+Yes, record these to the journal file.
+
+--------------------------------------------------------------------------------
+RESPONSE 4:
+--------------------------------------------------------------------------------
+Recorded all recommended prompts and response summaries to the journal file.
+
