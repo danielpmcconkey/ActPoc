@@ -185,3 +185,256 @@ RESPONSE 4:
 --------------------------------------------------------------------------------
 Recorded all recommended prompts and response summaries to the journal file.
 
+--------------------------------------------------------------------------------
+PROMPT 5:
+--------------------------------------------------------------------------------
+I would like to minimize human involvement. I would prefer that these agents
+communicate between each other when they encounter ambiguity and only escalate
+to humans in cases of egregious ambiguity and high impact. How would you change
+the prompts I should ask you to reflect that. Please record this prompt and
+response to the journal file.
+
+--------------------------------------------------------------------------------
+RESPONSE 5:
+--------------------------------------------------------------------------------
+Revised all prompts to shift from human-gated to agent-autonomous with human
+escalation as the exception. Three key changes applied across all prompts:
+  1. Inter-agent resolution: agents resolve ambiguity by consulting other
+     agents' outputs before escalating
+  2. Escalation threshold: only escalate when confidence <50% AND impact
+     affects downstream consumers or production data
+  3. Decision log: every autonomous decision logged for post-hoc human audit
+
+REVISED PHASE 1: DISCOVERY & PRIORITIZATION
+=============================================
+
+Prompt 1A - Portfolio Scan (revised):
+  "Read AgentTeamsJourney.txt for context. Scan the ETL job catalog at [path].
+  Build an inventory including: job name, schedule frequency, average runtime,
+  failure rate, dependencies, data volumes, and last modified date. Score each
+  job's health 1-10. When metadata is incomplete or ambiguous, infer from
+  available execution logs and document your inference with a confidence score.
+  Only escalate to a human if a job's metadata is completely missing AND it
+  appears in the top 50 by volume or frequency. Log all inferences and
+  decisions to [decision-log-path]."
+
+Prompt 1B - Financial Ops Analysis (revised):
+  "Read AgentTeamsJourney.txt for context. Analyze financial operations reports
+  at [path]. Extract: support ticket volume per job, cost allocations, SLA
+  breaches, incident frequency. When report data is ambiguous or conflicts
+  with the portfolio inventory from Prompt 1A at [path], cross-reference both
+  sources, apply the more conservative interpretation, and log the
+  discrepancy. Only escalate to a human if a cost discrepancy exceeds
+  $[threshold] per month or if an SLA breach pattern suggests active data
+  quality issues affecting downstream consumers. Log all decisions to
+  [decision-log-path]."
+
+Prompt 1C - Prioritization (revised):
+  "Read AgentTeamsJourney.txt for context. Using portfolio inventory at [path]
+  and financial analysis at [path], produce a prioritized rewrite backlog.
+  Weight by: operational cost (30%), failure frequency (25%), code
+  age/complexity (20%), business criticality (15%), rewrite difficulty (10%).
+  When two agents' outputs conflict on a job's ranking factors, use the
+  decision logs at [decision-log-path] to understand why, apply the more
+  conservative score, and document your resolution. Produce the top 20
+  candidates with justification. Only escalate to a human if the top 5
+  candidates include jobs flagged as regulatory/compliance-critical. Log all
+  decisions to [decision-log-path]."
+
+REVISED PHASE 2: ANALYSIS & SPECIFICATION
+===========================================
+
+Prompt 2A - Code Review (revised):
+  "Read AgentTeamsJourney.txt for context. Review ETL code at [path]. Document:
+  source-to-target mappings, transformation logic, filters, joins,
+  aggregations, SCD handling, error handling, anti-patterns. When logic is
+  ambiguous (e.g., undocumented magic numbers, unclear business rules),
+  examine the actual data profiles at [path] to infer intent and annotate
+  with confidence scores. Do not escalate — instead, document ambiguities as
+  'assumptions' in your report with rationale. Flag for human review ONLY if
+  the code appears to handle PII/PHI data with potential compliance
+  implications. Log all assumptions to [decision-log-path]."
+
+Prompt 2B - Data Profiling (revised):
+  "Read AgentTeamsJourney.txt for context. Profile input/output data for ETL
+  job [name]. Raw tables at [paths], curated at [paths]. Report: row counts,
+  schema, distributions, null rates, cardinality, min/max/mean. When you find
+  schema mismatches between raw and curated layers, cross-reference the code
+  analysis at [path] to determine if the mismatch is intentional
+  transformation or a bug. Document your determination. Only escalate if you
+  detect potential data corruption (e.g., curated row counts significantly
+  exceed raw inputs with no explainable fan-out). Log to [decision-log-path]."
+
+Prompt 2C - Requirements & Spec (revised):
+  "Read AgentTeamsJourney.txt for context. Using code analysis at [path] and
+  data profiles at [path], infer business requirements and write a functional
+  specification. For any requirement where confidence is below 80%, consult
+  the code analysis assumptions and data profile notes to resolve. Where
+  multiple interpretations exist, choose the one most consistent with the
+  actual data behavior and document your reasoning. Only escalate to a human
+  if: (1) the job appears to implement regulatory logic (SOX, GDPR, HIPAA)
+  and you cannot determine the rule with >60% confidence, OR (2) the inferred
+  requirements contradict each other in ways that affect output correctness.
+  Log to [decision-log-path]."
+
+REVISED PHASE 3: TEST ENGINEERING
+===================================
+
+Prompt 3A (revised):
+  "Read AgentTeamsJourney.txt for context. Using functional spec at [path] and
+  data profiles at [path], generate: (1) test case inventory — happy path,
+  edge cases, nulls, boundaries, regression; (2) automated tests in
+  [framework]; (3) test data scripts. For any spec ambiguity, consult the
+  assumptions log at [decision-log-path] and design tests that cover BOTH
+  interpretations of ambiguous requirements (i.e., if a business rule could
+  mean X or Y, write tests for both). Do not escalate — instead, use the
+  dual-interpretation test strategy to catch issues during validation. Log
+  test design decisions to [decision-log-path]."
+
+REVISED PHASE 4: REWRITE & VALIDATION
+=======================================
+
+Prompt 4A - Rewrite (revised):
+  "Read AgentTeamsJourney.txt for context. Rewrite the ETL job using functional
+  spec at [path], existing code at [path] as reference, test suite at [path].
+  Follow best practices: idempotency, schema evolution, incremental
+  processing, partitioning, error handling, logging. Target framework:
+  [Spark/dbt/etc]. When the spec contains assumptions with <80% confidence,
+  implement the primary interpretation but structure the code so the
+  alternative can be swapped in with minimal change (e.g., configurable
+  thresholds, extracted business rule functions). Do not escalate. Log
+  implementation decisions to [decision-log-path]."
+
+Prompt 4B - Validate (revised):
+  "Read AgentTeamsJourney.txt for context. Run test suite at [path] against
+  rewritten code at [path]. Run static analysis with [tools]. Compare new
+  output against baseline at [path] with row/column reconciliation. If
+  reconciliation match is >=99.5%, pass autonomously. If match is 95-99.5%,
+  review the mismatched rows, determine if differences are improvements (e.g.,
+  better null handling) or regressions, and log your determination. If match
+  is <95%, OR if mismatches affect financial/regulatory columns, escalate to
+  a human with a detailed diff report. Log to [decision-log-path]."
+
+ESCALATION SUMMARY TABLE:
+  Scenario                                          | Action
+  --------------------------------------------------|------------------
+  Missing metadata for high-volume job               | Escalate
+  Cost discrepancy > $threshold/month                | Escalate
+  Top candidates include compliance-critical jobs    | Escalate
+  PII/PHI handling with compliance implications      | Escalate
+  Potential data corruption detected                 | Escalate
+  Regulatory logic with <60% confidence              | Escalate
+  Reconciliation <95% or financial column mismatch   | Escalate
+  Everything else                                    | Resolve autonomously, log decision
+
+--------------------------------------------------------------------------------
+PROMPT 6:
+--------------------------------------------------------------------------------
+I would like to emphasize a few points. First point is that the existing code
+should be viewed as the source of truth as far as producing output is concerned.
+Any business requirement or technical requirement created by an agent must be
+able to trace to evidence in either the source data or the output data. If
+something seems incorrect, as if the existing code is producing the wrong
+output, then the agents should document the concerns, but still reproduce the
+same seemingly wrong output that the existing code does. The second point is
+that the existing code should not be seen as necessarily the best architecture.
+I know that some of these ETL jobs run poorly due to their code flow and coding
+practices. In all cases where code processes large data sets, the agents should
+seek to implement set based processing (e.g. Spark SQL) rather than iterating
+over data sets (e.g. for loops in Python).
+
+--------------------------------------------------------------------------------
+RESPONSE 6:
+--------------------------------------------------------------------------------
+Established two non-negotiable principles and revised four prompts:
+
+PRINCIPLE 1 - OUTPUT FIDELITY (existing code output is source of truth):
+  - Every inferred requirement must trace to evidence in source data,
+    transformation code, or output data
+  - If output appears incorrect, document as "suspected defect" but still
+    reproduce the existing behavior exactly
+  - Unverified requirements (no evidence) must be flagged as such
+  - Spec includes a "Suspected Defects" appendix for concerns
+  - Tests tagged as "defect-preserving" for suspected bugs so they can be
+    easily updated if business later confirms and requests a fix
+
+PRINCIPLE 2 - ARCHITECTURE IS NOT SACRED (improve code flow):
+  - Catalog all iterative processing: for loops, row-by-row UDFs, collect(),
+    toPandas(), iterrows(), Python-side DataFrame iteration
+  - Replace ALL with set-based equivalents: Spark SQL, DataFrame API, window
+    functions, built-in aggregate functions
+  - Rewritten code should contain zero for-loops over data rows
+  - Spec includes "Architectural Improvements" section listing all
+    iterative-to-set-based conversion opportunities
+
+REVISED PROMPTS (superseding previous versions):
+
+Prompt 2A - Code Review (rev 2):
+  "Read AgentTeamsJourney.txt for context. Review ETL code at [path]. Document:
+  source-to-target mappings, transformation logic, filters, joins,
+  aggregations, SCD handling, error handling. Treat the existing code's output
+  as the source of truth. Every business rule you infer must trace to evidence
+  in either the source data, the transformation logic, or the output data. If
+  you observe logic that appears to produce incorrect output (e.g., a filter
+  that seems wrong, an aggregation that drops rows unexpectedly), document it
+  as a 'suspected defect' with your reasoning, but record the actual behavior
+  as the requirement. Additionally, catalog all architectural anti-patterns,
+  specifically: iterative processing (for loops, row-by-row operations,
+  collect() calls, toPandas() conversions, Python UDFs that iterate),
+  inefficient joins, unnecessary materializations, and missing partitioning.
+  Flag each for set-based replacement. Log to [decision-log-path]."
+
+Prompt 2C - Requirements & Spec (rev 2):
+  "Read AgentTeamsJourney.txt for context. Using code analysis at [path] and
+  data profiles at [path], infer business requirements and write a functional
+  specification. Every requirement must include a traceability reference —
+  cite the specific code block, source data characteristic, or output data
+  pattern that evidences the requirement. If no evidence can be found, flag
+  the requirement as 'unverified' and do not include it in the spec without
+  explicit notation. Where existing code appears to produce incorrect output,
+  document the concern in a 'Suspected Defects' appendix but write the spec
+  to reproduce the existing behavior exactly. The spec should include a
+  separate 'Architectural Improvements' section listing all
+  iterative-to-set-based conversion opportunities identified in the code
+  review. For any requirement where confidence is below 80%, consult the code
+  analysis assumptions and data profile notes to resolve. Only escalate per
+  the previously defined escalation criteria. Log to [decision-log-path]."
+
+Prompt 3A - Test Engineering (rev 2):
+  "Read AgentTeamsJourney.txt for context. Using functional spec at [path] and
+  data profiles at [path], generate test cases and automated tests. Test cases
+  must validate that the rewritten code produces output identical to the
+  existing code's output — not what the output 'should' be. For items in the
+  'Suspected Defects' appendix, create specific regression tests that confirm
+  the rewritten code reproduces the same behavior, and tag these tests as
+  'defect-preserving' so they can be easily identified and updated if the
+  business later confirms the defect and requests a fix. Cover happy path,
+  edge cases, nulls, boundaries, and regression. For spec ambiguities, design
+  dual-interpretation tests. Log to [decision-log-path]."
+
+Prompt 4A - Rewrite (rev 2):
+  "Read AgentTeamsJourney.txt for context. Rewrite the ETL job using functional
+  spec at [path], existing code at [path] as reference, test suite at [path].
+  Two non-negotiable rules: (1) OUTPUT FIDELITY: The rewritten code must
+  produce byte-for-byte identical output to the existing code, including
+  reproducing any suspected defects documented in the spec. Do not fix bugs
+  unless explicitly instructed. (2) ARCHITECTURAL IMPROVEMENT: Replace all
+  iterative processing patterns (for loops, row-by-row UDFs, collect(),
+  toPandas(), iterrows(), Python-side iteration over DataFrames) with
+  set-based equivalents (Spark SQL, DataFrame API, window functions, built-in
+  aggregate functions). The rewritten code should contain zero for-loops over
+  data rows. Follow best practices: idempotency, schema evolution,
+  incremental processing, partitioning, error handling, logging. Target
+  framework: [Spark/dbt/etc]. Log to [decision-log-path]."
+
+SUMMARY TABLE OF TWO PRINCIPLES:
+  Principle              | Meaning                    | Agent Behavior
+  -----------------------|----------------------------|---------------------------
+  Output is sacred       | Actual output = requirement| Reproduce exactly, even
+                         |                            | suspected bugs. Trace all
+                         |                            | requirements to evidence.
+  Architecture is not    | Code flow may be terrible  | Eliminate iterative
+  sacred                 |                            | processing. Replace with
+                         |                            | set-based (Spark SQL).
+                         |                            | Zero for-loops over data.
+
